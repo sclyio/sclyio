@@ -1,8 +1,8 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { delta, Pager, teamLabel, usr } from "@/components/plain";
+import { Avatar, Change, Pager, teamLabel, usr } from "@/components/plain";
 import { officialEvents, states } from "@/lib/queries/common";
-import { getRankings, levels, PAGE_SIZE, type Period, type SortKey, type StatusFilter } from "@/lib/queries/rankings";
+import { getRankings, levels, PAGE_SIZE, type Period, type StatusFilter } from "@/lib/queries/rankings";
 import type { RatingView } from "@/lib/rating/config";
 
 export const dynamic = "force-dynamic";
@@ -22,8 +22,6 @@ export default async function RankingsPage(props: PageProps<"/rankings">) {
     : mode === "event"
       ? "all"
       : "established";
-  const sort = ((["rank", "usr", "change", "tournaments", "last", "name"] as const).includes(one(sp.sort) as SortKey) ? one(sp.sort) : "rank") as SortKey;
-  const dir = one(sp.dir) === "desc" ? "desc" : one(sp.dir) === "asc" ? "asc" : sort === "rank" || sort === "name" ? "asc" : "desc";
   const period = (["1w", "4w", "season"] as const).includes(one(sp.period) as Period) ? (one(sp.period) as Period) : "4w";
   const page = Math.max(1, Number(one(sp.page)) || 1);
 
@@ -37,9 +35,8 @@ export default async function RankingsPage(props: PageProps<"/rankings">) {
     state: one(sp.state) || undefined,
     level: one(sp.level) || undefined,
     status,
-    q: one(sp.q) || undefined,
-    sort,
-    dir,
+    sort: "rank",
+    dir: "asc",
     page,
     onePerSchool: one(sp.one) === "1",
     period,
@@ -61,30 +58,30 @@ export default async function RankingsPage(props: PageProps<"/rankings">) {
     if (!("page" in patch)) p.delete("page");
     return `/rankings?${p.toString()}`;
   };
-  const sortLink = (key: SortKey, label: string) => (
-    <Link href={href({ sort: key, dir: sort === key ? (dir === "asc" ? "desc" : "asc") : key === "rank" || key === "name" ? "asc" : "desc" })}>
+  const chip = (on: boolean, label: string, patch: Record<string, string | null>) => (
+    <Link className={on ? "chip on" : "chip"} href={href(patch)}>
       {label}
     </Link>
   );
-  const snap = res.snapshot;
   const snapshots = mode === "event" ? res.snapshots.filter((s) => s.has_event_detail) : res.snapshots;
 
   return (
     <>
       <h1>Rankings</h1>
-      <form action="/rankings">
-        <select name="div" defaultValue={division} aria-label="Division">
-          <option value="C">Division C</option>
-          <option value="B">Division B</option>
-        </select>{" "}
-        <select name="view" defaultValue={view} aria-label="View">
-          <option value="team">Teams</option>
-          <option value="school">Schools (superscore)</option>
-        </select>{" "}
-        <select name="mode" defaultValue={mode} aria-label="Overall or event">
-          <option value="overall">Overall</option>
-          <option value="event">By event</option>
-        </select>{" "}
+      <div className="chips">
+        {chip(division === "C", "Division C", { div: "C", event: null, asof: null, season: null })}
+        {chip(division === "B", "Division B", { div: "B", event: null, asof: null, season: null })}
+        <span style={{ width: 8 }} />
+        {chip(view === "team", "Teams", { view: null, one: null })}
+        {chip(view === "school", "Schools", { view: "school", one: null })}
+        <span style={{ width: 8 }} />
+        {chip(mode === "overall", "Overall", { mode: null, event: null, status: null })}
+        {chip(mode === "event", "By Event", { mode: "event", status: null })}
+      </div>
+      <form action="/rankings" className="filters">
+        <input type="hidden" name="div" value={division} />
+        {view === "school" ? <input type="hidden" name="view" value="school" /> : null}
+        {mode === "event" ? <input type="hidden" name="mode" value="event" /> : null}
         {mode === "event" ? (
           <select name="event" defaultValue={one(sp.event)} aria-label="Event">
             {events.map((e) => (
@@ -93,93 +90,84 @@ export default async function RankingsPage(props: PageProps<"/rankings">) {
               </option>
             ))}
           </select>
-        ) : null}{" "}
+        ) : null}
         <select name="season" defaultValue={season ?? ""} aria-label="Season">
           {res.seasons.map((s) => (
             <option key={s} value={s}>
-              {s - 1}-{s}
+              {s - 1}-{String(s).slice(2)} season
             </option>
           ))}
-        </select>{" "}
-        <select name="asof" defaultValue={snap?.as_of ?? ""} aria-label="As of">
+        </select>
+        <select name="asof" defaultValue={res.snapshot?.as_of ?? ""} aria-label="As of">
           {[...snapshots].reverse().map((s) => (
             <option key={s.id} value={s.as_of}>
-              {s.as_of}
+              As of {s.as_of}
             </option>
           ))}
-        </select>{" "}
+        </select>
         <select name="state" defaultValue={one(sp.state)} aria-label="State">
           <option value="">All states</option>
           {stateList.map((s) => (
             <option key={s}>{s}</option>
           ))}
-        </select>{" "}
-        <select name="level" defaultValue={one(sp.level)} aria-label="Competed at level">
-          <option value="">Any level</option>
+        </select>
+        <select name="level" defaultValue={one(sp.level)} aria-label="Level">
+          <option value="">All levels</option>
           {levelList.map((l) => (
             <option key={l}>{l}</option>
           ))}
-        </select>{" "}
+        </select>
         <select name="status" defaultValue={status} aria-label="Status">
           <option value="established">Ranked</option>
           <option value="provisional">Provisional</option>
           <option value="inactive">Inactive</option>
           <option value="all">All</option>
-        </select>{" "}
-        <select name="period" defaultValue={period} aria-label="Change over">
-          <option value="1w">Change: 1 week</option>
-          <option value="4w">Change: 4 weeks</option>
-          <option value="season">Change: season</option>
-        </select>{" "}
-        {view === "team" ? (
-          <label>
-            <input type="checkbox" name="one" value="1" defaultChecked={one(sp.one) === "1"} /> Best team per school
+        </select>
+        {mode === "overall" ? (
+          <select name="period" defaultValue={period} aria-label="Change over">
+            <option value="1w">1 week change</option>
+            <option value="4w">4 week change</option>
+            <option value="season">Season change</option>
+          </select>
+        ) : null}
+        {view === "team" && mode === "overall" ? (
+          <label className="muted">
+            <input type="checkbox" name="one" value="1" defaultChecked={one(sp.one) === "1"} /> Top team per school
           </label>
-        ) : null}{" "}
-        <input name="q" defaultValue={one(sp.q)} size={16} placeholder="Name" aria-label="Search name" /> <button>Go</button>
+        ) : null}
+        <button>Apply</button>
       </form>
 
-      {!snap || res.rows.length === 0 ? (
-        <p>No results.</p>
-      ) : (
-        <div className="scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>{sortLink("rank", "#")}</th>
-                <th>{sortLink("name", view === "team" ? "Team" : "School")}</th>
-                <th>State</th>
-                <th>{sortLink("usr", "USR")}</th>
-                <th>{mode === "overall" ? sortLink("change", "Change") : "Appearances"}</th>
-                <th>{sortLink("tournaments", "Tournaments")}</th>
-                <th>{sortLink("last", "Last")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {res.rows.map((r) => {
-                const rank = mode === "event" ? r.eventRank : r.nationalRank;
-                return (
-                  <tr key={r.entityId}>
-                    <td className="n">{rank ?? "-"}</td>
-                    <td>
-                      <Link href={view === "team" ? `/teams/${r.entityId}` : `/schools/${r.entityId}`}>
-                        {r.schoolName}
-                        {view === "team" ? ` ${teamLabel(r.designation)}` : ""}
-                      </Link>
-                    </td>
-                    <td>{r.state}</td>
-                    <td className="n">{usr(r.usr)}</td>
-                    <td className="n">{mode === "overall" ? delta(r.prevUsr === null ? null : r.usr - r.prevUsr) : r.appearances}</td>
-                    <td className="n">{r.tournaments}</td>
-                    <td>{r.lastCompetition ?? "-"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <Pager page={page} total={res.total} size={PAGE_SIZE} href={(p) => href({ page: String(p) })} />
+      <section className="card flush">
+        {res.rows.length === 0 ? (
+          <p style={{ padding: 16 }} className="muted">
+            No results.
+          </p>
+        ) : (
+          <ul className="rows">
+            {res.rows.map((r) => {
+              const rank = mode === "event" ? r.eventRank : r.nationalRank;
+              return (
+                <li key={r.entityId} className="row">
+                  <span className="rank">{rank ?? "-"}</span>
+                  <Avatar name={r.schoolName} small />
+                  <span className="who">
+                    <Link href={view === "team" ? `/teams/${r.entityId}` : `/schools/${r.entityId}`}>
+                      {r.schoolName} {view === "team" ? teamLabel(r.designation) : ""}
+                    </Link>
+                    <div className="sub">
+                      {[r.city, r.state].filter(Boolean).join(", ")} · {r.tournaments} tournaments
+                    </div>
+                  </span>
+                  {mode === "overall" ? <Change v={r.prevUsr === null ? null : r.usr - r.prevUsr} /> : null}
+                  <span className="pill">{usr(r.usr)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <Pager page={page} total={res.total} size={PAGE_SIZE} href={(p) => href({ page: String(p) })} />
+      </section>
     </>
   );
 }

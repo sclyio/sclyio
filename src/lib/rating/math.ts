@@ -30,13 +30,22 @@ export function placementLogit(rank: number, n: number): number {
   return Math.log((n + 1 - rank) / rank);
 }
 
-/** Public display scale. Zero maps to scaleMax / 2. */
-export function toUsr(z: number, scaleMax = 20, spread = 2): number {
-  return scaleMax / (1 + Math.exp(-z / spread));
+export interface DisplayScale {
+  scaleMin: number;
+  scaleMax: number;
+  scaleCenter: number;
+  scaleSpread: number;
 }
 
-export function fromUsr(usr: number, scaleMax = 20, spread = 2): number {
-  return -spread * Math.log(scaleMax / usr - 1);
+const DEFAULT_SCALE: DisplayScale = { scaleMin: 1, scaleMax: 16.5, scaleCenter: 0.85, scaleSpread: 0.6 };
+
+/** Public display scale (monotone in z; bounded by scaleMin..scaleMax). */
+export function toUsr(z: number, s: DisplayScale = DEFAULT_SCALE): number {
+  return s.scaleMin + (s.scaleMax - s.scaleMin) / (1 + Math.exp(-(z - s.scaleCenter) / s.scaleSpread));
+}
+
+export function fromUsr(usr: number, s: DisplayScale = DEFAULT_SCALE): number {
+  return s.scaleCenter - s.scaleSpread * Math.log((s.scaleMax - s.scaleMin) / (usr - s.scaleMin) - 1);
 }
 
 /**

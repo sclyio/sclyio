@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { teamLabel, usr } from "@/components/plain";
+import { Avatar, RatingBadge, Tabs, teamLabel, usr } from "@/components/plain";
 import { entityLabel } from "@/lib/queries/common";
 import { detailSnapshotId, eventBreakdown, history, schoolProfile } from "@/lib/queries/profiles";
 
@@ -17,129 +17,123 @@ export default async function SchoolPage(props: PageProps<"/schools/[slug]">) {
   const { slug } = await props.params;
   const id = decodeURIComponent(slug);
   const sp = (await props.searchParams) as Record<string, string | undefined>;
+  const tab = sp.tab === "events" || sp.tab === "tournaments" ? sp.tab : "teams";
   const p = await schoolProfile(id);
   if (!p) notFound();
   const pools = p.potential;
   const chosen = pools.find((x) => `${x.division}-${x.season}` === sp.pool) ?? pools.find((x) => x.rating) ?? pools[0];
   const hist = chosen ? await history("school", id, chosen.division, chosen.season) : [];
-  const events = chosen ? await eventBreakdown("school", id, chosen.division, chosen.season, detailSnapshotId(hist)) : [];
+  const events = chosen && tab === "events" ? await eventBreakdown("school", id, chosen.division, chosen.season, detailSnapshotId(hist)) : [];
   const r = chosen?.rating;
+  const base = `/schools/${encodeURIComponent(id)}`;
+  const q = (extra: string) => `${base}?${chosen ? `pool=${chosen.division}-${chosen.season}&` : ""}${extra}`;
 
   return (
     <>
-      <h1>{p.school.schoolName}</h1>
-      <p>
-        {[p.school.city, p.school.state].filter(Boolean).join(", ")}
-        {chosen ? (
-          <>
-            {" "}
-            &middot;{" "}
-            <Link href={`/compare?view=school&div=${chosen.division}&season=${chosen.season}&ids=${encodeURIComponent(id)}`}>Compare</Link>
-          </>
-        ) : null}
-      </p>
-
-      <h2>Teams</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Season</th>
-            <th>Div.</th>
-            <th>Team</th>
-            <th>USR</th>
-            <th>Rank</th>
-          </tr>
-        </thead>
-        <tbody>
-          {p.teams.map((t) => (
-            <tr key={t.id}>
-              <td>
-                {t.season - 1}-{t.season}
-              </td>
-              <td>{t.division}</td>
-              <td>
-                <Link href={`/teams/${t.id}`}>{teamLabel(t.designation)}</Link>
-              </td>
-              <td className="n">{usr(t.rating?.usr)}</td>
-              <td className="n">{t.rating?.national_rank ?? "-"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {chosen ? (
-        <>
-          <h2>
-            School superscore, Division {chosen.division} {chosen.season - 1}-{chosen.season}
-          </h2>
-          {pools.length > 1 ? (
-            <p>
-              {pools.map((x, i) => (
-                <span key={`${x.division}-${x.season}`}>
-                  {i ? " | " : ""}
-                  <Link href={`/schools/${id}?pool=${x.division}-${x.season}`}>
-                    {x.division} {x.season - 1}-{x.season}
-                  </Link>
-                </span>
+      <section className="card">
+        <div className="profile">
+          <Avatar name={p.school.schoolName} />
+          <div>
+            <h1 className="profile-name">{p.school.schoolName}</h1>
+            <div className="profile-sub">{[p.school.city, p.school.state].filter(Boolean).join(", ")}</div>
+            <div className="chips" style={{ marginTop: 10, marginBottom: 0 }}>
+              {pools.map((x) => (
+                <Link
+                  key={`${x.division}-${x.season}`}
+                  className={x === chosen ? "chip on" : "chip"}
+                  href={`${base}?pool=${x.division}-${x.season}${tab !== "teams" ? `&tab=${tab}` : ""}`}
+                >
+                  Div {x.division} {x.season - 1}-{String(x.season).slice(2)}
+                </Link>
               ))}
-            </p>
-          ) : null}
-          <p>
-            <b>USR {usr(r?.usr)}</b>
-            {r?.national_rank ? ` · #${r.national_rank}` : r ? ` · ${r.status}` : ""}
-          </p>
-          <div className="scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Event</th>
-                  <th>USR</th>
-                  <th>Rank</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events
-                  .filter((e) => !e.eventDefId.startsWith("other:"))
-                  .map((e) => (
-                    <tr key={e.eventDefId}>
-                      <td>{e.name}</td>
-                      <td className="n">{usr(e.rating?.usr)}</td>
-                      <td className="n">{e.rating?.eventRank ? `${e.rating.eventRank}/${e.rankedCount}` : "-"}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
+              {chosen ? (
+                <Link className="chip" href={`/compare?view=school&div=${chosen.division}&season=${chosen.season}&ids=${encodeURIComponent(id)}`}>
+                  Compare
+                </Link>
+              ) : null}
+            </div>
           </div>
-        </>
-      ) : null}
+          <RatingBadge
+            label="SCHOOL USR"
+            value={r?.usr}
+            coverage={r ? r.comparable_events / r.official_events : undefined}
+            sub={r?.national_rank ? `#${r.national_rank} Division ${chosen!.division}` : r ? r.status : "Unrated"}
+          />
+        </div>
+      </section>
 
-      <h2>Tournaments</h2>
-      <div className="scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Tournament</th>
-              <th>Div.</th>
-              <th>Best place</th>
-            </tr>
-          </thead>
-          <tbody>
-            {p.appearances.map((a) => (
-              <tr key={String(a.id)}>
-                <td>{String(a.end_date)}</td>
-                <td>
-                  <Link href={`/tournaments/${a.id}`}>{String(a.name)}</Link>
-                </td>
-                <td>{String(a.division)}</td>
-                <td className="n">
-                  {a.best_rank ? String(a.best_rank) : "-"}/{String(a.field)}
-                </td>
-              </tr>
+      <Tabs
+        active={tab}
+        items={[
+          { key: "teams", label: "Teams", href: q("") },
+          { key: "events", label: "Events", href: q("tab=events") },
+          { key: "tournaments", label: "Tournaments", href: q("tab=tournaments") },
+        ]}
+      />
+
+      {tab === "teams" ? (
+        <section className="card flush">
+          <ul className="rows">
+            {p.teams.map((t) => (
+              <li key={t.id} className="row">
+                <span className="who">
+                  <Link href={`/teams/${t.id}`}>
+                    {p.school.schoolName} {teamLabel(t.designation)}
+                  </Link>
+                  <div className="sub">
+                    Division {t.division} · {t.season - 1}-{String(t.season).slice(2)} · {t.appearances} tournaments
+                    {t.rating?.national_rank ? ` · #${t.rating.national_rank}` : ""}
+                  </div>
+                </span>
+                <span className="pill">{usr(t.rating?.usr)}</span>
+              </li>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </ul>
+        </section>
+      ) : tab === "events" ? (
+        <section className="card flush scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Event</th>
+                <th className="n">USR</th>
+                <th className="n">Rank</th>
+              </tr>
+            </thead>
+            <tbody>
+              {events
+                .filter((e) => !e.eventDefId.startsWith("other:"))
+                .map((e) => (
+                  <tr key={e.eventDefId}>
+                    <td>{e.name}</td>
+                    <td className="n">
+                      <span className="pill">{usr(e.rating?.usr)}</span>
+                    </td>
+                    <td className="n muted">{e.rating?.eventRank ? `#${e.rating.eventRank} of ${e.rankedCount}` : "-"}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </section>
+      ) : (
+        <section className="card flush">
+          <ul className="rows">
+            {p.appearances.map((a) => (
+              <li key={String(a.id)} className="row">
+                <span className="who">
+                  <Link href={`/tournaments/${a.id}`}>{String(a.name)}</Link>
+                  <div className="sub">
+                    {String(a.end_date)} · Division {String(a.division)} · {String(a.level)}
+                  </div>
+                </span>
+                <span className="muted">
+                  Best {a.best_rank ? String(a.best_rank) : "-"} of {String(a.field)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </>
   );
 }

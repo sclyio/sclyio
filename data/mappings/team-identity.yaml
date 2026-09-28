@@ -1,11 +1,13 @@
 # Explicit team-identity decisions (version-controlled).
 #
 # Team numbers are local to one tournament and are never used as identity.
-# An unlabeled entry is treated as the school's "Unlabeled team" only when it
-# was the school's sole entry at that tournament; otherwise it is stored as
-# an unresolved appearance: shown in results, excluded from Team Performance
-# until mapped here. (School Potential superscoring still uses it, because
-# the school itself is known.)
+# An unlabeled entry joins the school's highest-ranking LABELED team in that
+# division and season (ranked by mean finishing percentile across the team's
+# labeled entries), skipping any team that already competed at the same
+# tournament. Several unlabeled entries at one tournament are assigned in
+# official finishing order. A school with no labeled team that season keeps
+# its own "unlabeled" team. Entries that cannot be placed stay unresolved:
+# shown in results, excluded from Team Performance until mapped here.
 #
 # entries: map one tournament entry to a designation, or force it unresolved.
 #   - tournament: 2026-01-10_example_invitational_c

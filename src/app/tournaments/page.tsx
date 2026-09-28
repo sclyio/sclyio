@@ -14,7 +14,6 @@ export default async function TournamentsPage(props: PageProps<"/tournaments">) 
   const [f, { total, rows }] = await Promise.all([
     tournamentFilters(),
     listTournaments({
-      q: one(sp.q) || undefined,
       division: one(sp.div) || undefined,
       season: Number(one(sp.season)) || undefined,
       level: one(sp.level) || undefined,
@@ -28,69 +27,59 @@ export default async function TournamentsPage(props: PageProps<"/tournaments">) 
   return (
     <>
       <h1>Tournaments</h1>
-      <form action="/tournaments">
+      <form action="/tournaments" className="filters">
         <select name="season" defaultValue={one(sp.season)} aria-label="Season">
           <option value="">All seasons</option>
           {f.seasons.map((s) => (
             <option key={s} value={s}>
-              {s - 1}-{s}
+              {s - 1}-{String(s).slice(2)} season
             </option>
           ))}
-        </select>{" "}
+        </select>
         <select name="div" defaultValue={one(sp.div)} aria-label="Division">
-          <option value="">B and C</option>
-          <option value="B">B</option>
-          <option value="C">C</option>
-        </select>{" "}
+          <option value="">All divisions</option>
+          <option value="B">Division B</option>
+          <option value="C">Division C</option>
+        </select>
         <select name="level" defaultValue={one(sp.level)} aria-label="Level">
-          <option value="">Any level</option>
+          <option value="">All levels</option>
           {f.levels.map((l) => (
             <option key={l}>{l}</option>
           ))}
-        </select>{" "}
+        </select>
         <select name="state" defaultValue={one(sp.state)} aria-label="State">
-          <option value="">Any state</option>
+          <option value="">All states</option>
           {f.states.map((s) => (
             <option key={s}>{s}</option>
           ))}
-        </select>{" "}
-        <input type="date" name="from" defaultValue={one(sp.from)} aria-label="From" /> to{" "}
-        <input type="date" name="to" defaultValue={one(sp.to)} aria-label="To" />{" "}
-        <input name="q" defaultValue={one(sp.q)} size={16} placeholder="Name" aria-label="Name" /> <button>Go</button>
+        </select>
+        <input type="date" name="from" defaultValue={one(sp.from)} aria-label="From" />
+        <input type="date" name="to" defaultValue={one(sp.to)} aria-label="To" />
+        <button>Apply</button>
       </form>
-      {rows.length === 0 ? (
-        <p>No results.</p>
-      ) : (
-        <div className="scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Tournament</th>
-                <th>Div.</th>
-                <th>Level</th>
-                <th>State</th>
-                <th>Teams</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((t) => (
-                <tr key={String(t.id)}>
-                  <td>{String(t.end_date)}</td>
-                  <td>
-                    <Link href={`/tournaments/${t.id}`}>{String(t.name)}</Link>
-                  </td>
-                  <td>{String(t.division)}</td>
-                  <td>{String(t.level)}</td>
-                  <td>{String(t.state ?? "")}</td>
-                  <td className="n">{String(t.team_count)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <Pager page={page} total={total} size={T_PAGE} href={(p) => `/tournaments?${new URLSearchParams({ ...qs, page: String(p) })}`} />
+      <section className="card flush">
+        {rows.length === 0 ? (
+          <p style={{ padding: 16 }} className="muted">
+            No results.
+          </p>
+        ) : (
+          <ul className="rows">
+            {rows.map((t) => (
+              <li key={String(t.id)} className="row">
+                <span className="who">
+                  <Link href={`/tournaments/${t.id}`}>{String(t.name)}</Link>
+                  <div className="sub">
+                    {String(t.end_date)} · Division {String(t.division)} · {String(t.level)}
+                    {t.state ? ` · ${String(t.state)}` : ""}
+                  </div>
+                </span>
+                <span className="muted">{String(t.team_count)} teams</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <Pager page={page} total={total} size={T_PAGE} href={(p) => `/tournaments?${new URLSearchParams({ ...qs, page: String(p) })}`} />
+      </section>
     </>
   );
 }

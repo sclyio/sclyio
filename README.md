@@ -60,15 +60,16 @@ src/lib/source     duosmium-parse.ts    src/lib/identity        src/lib/db      
 
 - School = normalized name + city + state; same-named schools elsewhere are never auto-merged. Reviewed aliases: `data/mappings/school-aliases.yaml`.
 - Team-season = school + division + season + normalized label. Team numbers are tournament-local and never used.
-- An unlabeled entry is its own "unlabeled team" only if it was the school's sole entry at that tournament; otherwise it is **unresolved**: shown in results and used for School Potential (school is known), excluded from Team Performance until mapped in `data/mappings/team-identity.yaml`. Unlabeled is never assumed to be "A". Possible label splits can be found by querying `team_seasons` for schools with both unlabeled and labeled teams in one season.
+- An unlabeled entry joins the school's highest-ranking labeled team in that division and season (mean finishing percentile across its labeled entries; official placements only, not ratings), skipping teams already present at that tournament; several unlabeled entries at one tournament are assigned in finishing order. A school with no labeled team keeps an "unlabeled" team; anything else that cannot be placed is **unresolved** (shown in results and used for School Potential, excluded from Team Performance until mapped in `data/mappings/team-identity.yaml`).
 - Supersede/exclude files, record formats, canceled events, and withdrawn entries in `data/mappings/source-overrides.yaml`. Cross-season event equivalence for School Potential: `data/mappings/event-equivalence.yaml`.
 
-## Rating model (v2-exp.2)
+## Rating model (v2-exp.3)
 
 Implements the SentientTree-informed experimental v2 exactly as specified. Parameters live in `src/lib/rating/config.ts`: 400-day window, 200-day decay, N^0.25, online weight 0.5, λk = 1, λs = **1**, M from the season's official event list, established = all M events comparable plus 3 or more tournaments. Also:
 
 - Preconditioned conjugate gradient solves the strictly convex fit. A solution is accepted only if one alternating update moves no parameter by ≥ 1e-7. The alternating method and a dense solver exist for verification (tests).
 - Graph components per event pool; only the largest component is nationally comparable.
+- Display scale (v2-exp.3): USR = 1 + 15.5 / (1 + e^(-(z - 0.85) / 0.6)), fixed per model version; 2025-26 overall ratings span about 1.3 to 16.2.
 - Weekly Sunday snapshots per (division, view, season). Overall ratings are stored for every snapshot. Event-level detail is stored for January and March month-ends plus each season's final refit, to bound database size.
 - "Why did this change?" is an exact telescoping decomposition: window/coverage → field recalibration → recency → new results.
 - v1 Elo is implemented (`src/lib/rating/elo-v1.ts`) only as a backtest baseline.

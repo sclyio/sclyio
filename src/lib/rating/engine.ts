@@ -392,7 +392,7 @@ function writeSnapshot(a: {
             r.eventDefId,
             r.value,
             r.skill,
-            toUsr(r.value, p.scaleMax, p.scaleSpread),
+            toUsr(r.value, p),
             r.appearances,
             r.uniqueOpponents,
             r.nEff,

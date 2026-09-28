@@ -278,21 +278,46 @@ describe("identity resolution", () => {
     expect(r.entries.get("t1#1")!.teamSeasonId).toBe(r.entries.get("t2#2")!.teamSeasonId);
   });
 
-  it("stores ambiguous unlabeled entries as unresolved and never assumes the A team", () => {
+  it("assigns unlabeled entries to the school's highest-ranking labeled team not already present", () => {
+    const S = "Alder Ridge High School";
     const r = resolveIdentities(
       [
-        { ...base, tournamentId: "t1", number: 1, school: "Alder Ridge High School", suffix: null },
-        { ...base, tournamentId: "t1", number: 2, school: "Alder Ridge High School", suffix: "B" },
-        { ...base, tournamentId: "t2", number: 9, school: "Alder Ridge High School", suffix: null },
-        { ...base, tournamentId: "t3", number: 4, school: "Alder Ridge High School", suffix: "A" },
+        // B finishes near the top of its fields; A near the bottom -> B is the top team.
+        { ...base, tournamentId: "t0", number: 1, school: S, suffix: "B", rank: 1, fieldSize: 10 },
+        { ...base, tournamentId: "t0", number: 2, school: S, suffix: "A", rank: 8, fieldSize: 10 },
+        // t1: B is present, so the unlabeled entry joins the next-best team (A).
+        { ...base, tournamentId: "t1", number: 1, school: S, suffix: null, rank: 3, fieldSize: 10 },
+        { ...base, tournamentId: "t1", number: 2, school: S, suffix: "B", rank: 1, fieldSize: 10 },
+        // t2: a sole unlabeled entry joins the top team (B).
+        { ...base, tournamentId: "t2", number: 9, school: S, suffix: null, rank: 2, fieldSize: 10 },
+        // t3: two unlabeled entries, A and B both absent: best finisher -> B, next -> A.
+        { ...base, tournamentId: "t3", number: 5, school: S, suffix: null, rank: 6, fieldSize: 10 },
+        { ...base, tournamentId: "t3", number: 4, school: S, suffix: null, rank: 2, fieldSize: 10 },
       ],
       emptyMappings(),
     );
-    expect(r.entries.get("t1#1")!.resolution).toBe("unresolved");
-    expect(r.entries.get("t1#2")!.resolution).toBe("resolved");
-    // Sole unlabeled entry: its own "unlabeled" team, not merged with "A".
-    expect(r.entries.get("t2#9")!.teamSeasonId).toMatch(/--unlabeled$/);
-    expect(r.entries.get("t2#9")!.teamSeasonId).not.toBe(r.entries.get("t3#4")!.teamSeasonId);
+    const id = (k: string) => r.entries.get(k)!.teamSeasonId;
+    expect(id("t1#1")).toBe(id("t0#2")); // A
+    expect(id("t2#9")).toBe(id("t0#1")); // B
+    expect(id("t3#4")).toBe(id("t0#1")); // best finisher -> B
+    expect(id("t3#5")).toBe(id("t0#2")); // next -> A
+    expect([...r.teamSeasons.values()].some((t) => t.designation === "")).toBe(false);
+  });
+
+  it("keeps an 'unlabeled' team only when a school has no labeled team that season", () => {
+    const r = resolveIdentities(
+      [
+        { ...base, tournamentId: "t1", number: 1, school: "Birch Hollow High School", suffix: null, rank: 2, fieldSize: 5 },
+        { ...base, tournamentId: "t2", number: 3, school: "Birch Hollow High School", suffix: null, rank: 1, fieldSize: 5 },
+        // Two unlabeled entries at one tournament with no labeled team: unresolved.
+        { ...base, tournamentId: "t3", number: 1, school: "Cedar Point Academy", suffix: null },
+        { ...base, tournamentId: "t3", number: 2, school: "Cedar Point Academy", suffix: null },
+      ],
+      emptyMappings(),
+    );
+    expect(r.entries.get("t1#1")!.teamSeasonId).toMatch(/--unlabeled$/);
+    expect(r.entries.get("t1#1")!.teamSeasonId).toBe(r.entries.get("t2#3")!.teamSeasonId);
+    expect(r.entries.get("t3#1")!.resolution).toBe("unresolved");
   });
 
   it("applies reviewed mappings for aliases, entries, and merges", () => {

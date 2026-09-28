@@ -49,11 +49,14 @@ describe("midranks", () => {
 });
 
 describe("display scale", () => {
-  it("maps 0 to 10, is monotone, and inverts", () => {
-    expect(toUsr(0)).toBe(10);
+  it("spans 1.0-16.5, is monotone, and inverts", () => {
+    expect(toUsr(0.85)).toBeCloseTo(8.75, 12); // center maps to the midpoint of 1..16.5
     expect(toUsr(1)).toBeGreaterThan(toUsr(0.999));
-    expect(toUsr(-50)).toBeGreaterThan(0);
-    expect(toUsr(50)).toBeLessThan(20);
+    expect(toUsr(-50)).toBeGreaterThanOrEqual(1);
+    expect(toUsr(50)).toBeLessThanOrEqual(16.5);
+    // Observed overall range (z ≈ -1.5 … 3.2) uses nearly the full scale.
+    expect(toUsr(-1.5)).toBeLessThan(1.5);
+    expect(toUsr(3.2)).toBeGreaterThan(16);
     expect(fromUsr(toUsr(1.234))).toBeCloseTo(1.234, 10);
   });
 });

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { teamLabel, usr } from "@/components/plain";
+import { Avatar, teamLabel, usr } from "@/components/plain";
 import { search } from "@/lib/queries/search";
 
 export const dynamic = "force-dynamic";
@@ -13,42 +13,70 @@ export default async function SearchPage(props: PageProps<"/search">) {
   const none = !r.schools.length && !r.teams.length && !r.tournaments.length;
   return (
     <>
-      <h1>Search</h1>
-      <form action="/search">
-        <input name="q" defaultValue={q} size={40} required minLength={2} aria-label="Search" /> <button>Search</button>
-      </form>
-      {q.length < 2 ? null : none ? (
-        <p>No results.</p>
+      <h1>{q ? `Results for “${q}”` : "Search"}</h1>
+      {q.length < 2 ? (
+        <p className="muted">Use the search box at the top of the page.</p>
+      ) : none ? (
+        <p className="muted">No results.</p>
       ) : (
-        <>
-          <h2>Schools</h2>
-          <ul>
-            {r.schools.map((s) => (
-              <li key={s.id}>
-                <Link href={`/schools/${s.id}`}>{s.name}</Link> ({[s.city, s.state].filter(Boolean).join(", ")})
-              </li>
-            ))}
-          </ul>
-          <h2>Teams</h2>
-          <ul>
-            {r.teams.map((t) => (
-              <li key={t.id}>
-                <Link href={`/teams/${t.id}`}>
-                  {t.name} {teamLabel(t.designation)}
-                </Link>{" "}
-                (Div {t.division}, {t.season - 1}-{t.season}) {t.usr !== null ? usr(t.usr) : ""}
-              </li>
-            ))}
-          </ul>
-          <h2>Tournaments</h2>
-          <ul>
-            {r.tournaments.map((t) => (
-              <li key={t.id}>
-                <Link href={`/tournaments/${t.id}`}>{t.name}</Link> ({t.division}, {t.end_date})
-              </li>
-            ))}
-          </ul>
-        </>
+        <div className="grid2">
+          <section className="card flush">
+            <div className="card-head">
+              <h2 style={{ margin: 0 }}>Teams</h2>
+            </div>
+            <ul className="rows">
+              {r.teams.map((t) => (
+                <li key={t.id} className="row">
+                  <Avatar name={t.name} small />
+                  <span className="who">
+                    <Link href={`/teams/${t.id}`}>
+                      {t.name} {teamLabel(t.designation)}
+                    </Link>
+                    <div className="sub">
+                      {t.state} · Division {t.division} · {t.season - 1}-{String(t.season).slice(2)}
+                    </div>
+                  </span>
+                  <span className="pill">{usr(t.usr)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+          <div>
+            <section className="card flush">
+              <div className="card-head">
+                <h2 style={{ margin: 0 }}>Schools</h2>
+              </div>
+              <ul className="rows">
+                {r.schools.map((s) => (
+                  <li key={s.id} className="row">
+                    <Avatar name={s.name} small />
+                    <span className="who">
+                      <Link href={`/schools/${s.id}`}>{s.name}</Link>
+                      <div className="sub">{[s.city, s.state].filter(Boolean).join(", ")}</div>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+            <section className="card flush">
+              <div className="card-head">
+                <h2 style={{ margin: 0 }}>Tournaments</h2>
+              </div>
+              <ul className="rows">
+                {r.tournaments.map((t) => (
+                  <li key={t.id} className="row">
+                    <span className="who">
+                      <Link href={`/tournaments/${t.id}`}>{t.name}</Link>
+                      <div className="sub">
+                        {t.end_date} · Division {t.division} · {t.level}
+                      </div>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </div>
+        </div>
       )}
     </>
   );

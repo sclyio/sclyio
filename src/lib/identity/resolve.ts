@@ -10,6 +10,9 @@ export interface RawEntry {
   suffix: string | null;
   division: string;
   season: number;
+  /** Official overall rank and field size (used only to rank a school's labeled teams). */
+  rank?: number | null;
+  fieldSize?: number | null;
 }
 
 export interface ResolvedEntry {
@@ -112,9 +115,35 @@ export function resolveIdentities(raw: RawEntry[], mappings: Mappings): Resoluti
   const entries = new Map<string, ResolvedEntry>();
   const teamSeasons = new Map<string, ResolvedTeamSeason>();
   const displayVotes = new Map<string, Map<string, number>>();
+  // Unlabeled entries wait until every labeled team is known (pass 2).
+  const pending: { r: RawEntry; schoolId: string; display: string; tournamentTeams: Set<string>; groupKey: string }[] = [];
 
-  for (const [, group] of groups) {
+  const assign = (r: RawEntry, schoolId: string, d: string, display: string, note: string | null, fromMerge: boolean) => {
+    const id = teamSeasonId(schoolId, r.division, r.season, d);
+    if (!teamSeasons.has(id)) {
+      teamSeasons.set(id, { id, schoolId, division: r.division, season: r.season, designation: d, displayDesignation: "", mappingNote: note });
+    } else if (note && !teamSeasons.get(id)!.mappingNote) {
+      teamSeasons.get(id)!.mappingNote = note;
+    }
+    let v = displayVotes.get(id);
+    if (!v) displayVotes.set(id, (v = new Map()));
+    const disp = (fromMerge ? "" : display)?.trim() || "";
+    v.set(disp, (v.get(disp) ?? 0) + 1);
+    entries.set(entryKey(r.tournamentId, r.number), {
+      schoolId,
+      teamSeasonId: id,
+      designation: d,
+      displayDesignation: display || null,
+      resolution: "resolved",
+      reason: note,
+    });
+    return id;
+  };
+
+  // Pass 1: labeled entries (and reviewed per-entry mappings).
+  for (const [groupKey, group] of groups) {
     const schoolId = schoolIdFromKey(schoolOf.get(entryKey(group[0].tournamentId, group[0].number))!.key);
+    const present = new Set<string>();
     const desig = group.map((r) => {
       const ov = entryOverride.get(entryKey(r.tournamentId, r.number));
       if (ov?.unresolved) return { r, d: null as string | null, display: r.suffix, note: ov.reason, forced: "unresolved" as const };
@@ -124,28 +153,22 @@ export function resolveIdentities(raw: RawEntry[], mappings: Mappings): Resoluti
       return { r, d: normDesignation(r.suffix), display: r.suffix ?? "", note: null, forced: null };
     });
     const counts = new Map<string, number>();
-    for (const x of desig) if (x.d !== null) counts.set(x.d, (counts.get(x.d) ?? 0) + 1);
+    for (const x of desig) if (x.d) counts.set(x.d, (counts.get(x.d) ?? 0) + 1);
 
     for (const x of desig) {
       const key = entryKey(x.r.tournamentId, x.r.number);
-      let reason: string | null = null;
-      if (x.forced === "unresolved") reason = `Mapped as unresolved: ${x.note}`;
-      else if (x.forced !== "resolved") {
-        if (x.d === "" && group.length > 1) {
-          reason = `No team designation, and this school fielded ${group.length} entries at this tournament`;
-        } else if (x.d !== null && (counts.get(x.d) ?? 0) > 1) {
-          reason = `Designation "${x.display}" is used by more than one entry from this school at this tournament`;
-        }
+      const unresolved = (reason: string) =>
+        entries.set(key, { schoolId, teamSeasonId: null, designation: null, displayDesignation: x.display || null, resolution: "unresolved", reason });
+      if (x.forced === "unresolved" || x.d === null) {
+        unresolved(`Mapped as unresolved: ${x.note}`);
+        continue;
       }
-      if (reason || x.d === null) {
-        entries.set(key, {
-          schoolId,
-          teamSeasonId: null,
-          designation: null,
-          displayDesignation: x.display || null,
-          resolution: "unresolved",
-          reason: reason ?? "Unresolved",
-        });
+      if (x.d === "" && x.forced !== "resolved") {
+        pending.push({ r: x.r, schoolId, display: x.display ?? "", tournamentTeams: present, groupKey });
+        continue;
+      }
+      if (x.forced !== "resolved" && (counts.get(x.d) ?? 0) > 1) {
+        unresolved(`Designation "${x.display}" is used by more than one entry from this school at this tournament`);
         continue;
       }
       let d = x.d;
@@ -155,31 +178,68 @@ export function resolveIdentities(raw: RawEntry[], mappings: Mappings): Resoluti
         d = merge.into;
         note = `Merged by reviewed mapping: ${merge.reason}`;
       }
-      const id = teamSeasonId(schoolId, x.r.division, x.r.season, d);
-      if (!teamSeasons.has(id)) {
-        teamSeasons.set(id, {
-          id,
-          schoolId,
-          division: x.r.division,
-          season: x.r.season,
-          designation: d,
-          displayDesignation: "",
-          mappingNote: note,
-        });
-      } else if (note && !teamSeasons.get(id)!.mappingNote) {
-        teamSeasons.get(id)!.mappingNote = note;
-      }
-      let v = displayVotes.get(id);
-      if (!v) displayVotes.set(id, (v = new Map()));
-      const disp = (merge ? "" : x.display)?.trim() || "";
-      v.set(disp, (v.get(disp) ?? 0) + 1);
-      entries.set(key, {
-        schoolId,
-        teamSeasonId: id,
-        designation: d,
-        displayDesignation: x.display || null,
-        resolution: "resolved",
-        reason: note,
+      present.add(assign(x.r, schoolId, d, x.display ?? "", note, Boolean(merge)));
+    }
+  }
+
+  // Strength of each labeled team-season: mean finishing percentile (rank / field)
+  // over its labeled entries. Uses official placements only, never ratings.
+  const strength = new Map<string, { sum: number; n: number }>();
+  for (const r of raw) {
+    const e = entries.get(entryKey(r.tournamentId, r.number));
+    if (!e?.teamSeasonId || !e.designation || !r.rank || !r.fieldSize) continue;
+    const st = strength.get(e.teamSeasonId) ?? { sum: 0, n: 0 };
+    st.sum += r.rank / r.fieldSize;
+    st.n++;
+    strength.set(e.teamSeasonId, st);
+  }
+  const labeledBySchoolSeason = new Map<string, string[]>();
+  for (const ts of teamSeasons.values()) {
+    if (!ts.designation) continue;
+    const k = `${ts.schoolId}|${ts.division}|${ts.season}`;
+    let arr = labeledBySchoolSeason.get(k);
+    if (!arr) labeledBySchoolSeason.set(k, (arr = []));
+    arr.push(ts.id);
+  }
+  const score = (id: string) => {
+    const st = strength.get(id);
+    return st ? st.sum / st.n : Number.POSITIVE_INFINITY;
+  };
+  for (const arr of labeledBySchoolSeason.values()) {
+    arr.sort((x, y) => score(x) - score(y) || (strength.get(y)?.n ?? 0) - (strength.get(x)?.n ?? 0) || (x < y ? -1 : 1));
+  }
+
+  // Pass 2: each unlabeled entry joins the school's highest-ranking labeled team
+  // that is not already at this tournament. Several unlabeled entries at one
+  // tournament are assigned in official finishing order.
+  pending.sort(
+    (x, y) =>
+      (x.groupKey < y.groupKey ? -1 : x.groupKey > y.groupKey ? 1 : 0) ||
+      (x.r.rank ?? Number.POSITIVE_INFINITY) - (y.r.rank ?? Number.POSITIVE_INFINITY) ||
+      x.r.number - y.r.number,
+  );
+  const pendingPerGroup = new Map<string, number>();
+  for (const p of pending) pendingPerGroup.set(p.groupKey, (pendingPerGroup.get(p.groupKey) ?? 0) + 1);
+  for (const p of pending) {
+    const candidates = labeledBySchoolSeason.get(`${p.schoolId}|${p.r.division}|${p.r.season}`) ?? [];
+    const target = candidates.find((id) => !p.tournamentTeams.has(id));
+    if (target) {
+      const ts = teamSeasons.get(target)!;
+      p.tournamentTeams.add(assign(p.r, p.schoolId, ts.designation, "", "Unlabeled entry assigned to the school's top-ranked labeled team", true));
+    } else if (candidates.length === 0 && pendingPerGroup.get(p.groupKey) === 1) {
+      // No labeled team exists for this school-season: its own "unlabeled" team.
+      p.tournamentTeams.add(assign(p.r, p.schoolId, "", p.display, null, false));
+    } else {
+      entries.set(entryKey(p.r.tournamentId, p.r.number), {
+        schoolId: p.schoolId,
+        teamSeasonId: null,
+        designation: null,
+        displayDesignation: p.display || null,
+        resolution: "unresolved",
+        reason:
+          candidates.length === 0
+            ? "No team designation, and this school fielded several unlabeled entries at this tournament"
+            : "No team designation, and every labeled team of this school already competed at this tournament",
       });
     }
   }

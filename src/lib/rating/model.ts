@@ -290,7 +290,7 @@ export function computeSnapshot(args: {
     overall.set(entityId, {
       entityId,
       z,
-      usr: toUsr(z, p.scaleMax, p.scaleSpread),
+      usr: toUsr(z, p),
       comparableEvents: comparable,
       observedEvents: info.observed.size,
       tournaments: info.tournaments.size,

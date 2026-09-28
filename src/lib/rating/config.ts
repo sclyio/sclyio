@@ -9,8 +9,10 @@
  * v2-exp.1: lambdaS = 2 (starting hypothesis).
  * v2-exp.2: lambdaS = 1, selected on the validation split only (see
  * docs/backtest.md); all other parameters unchanged.
+ * v2-exp.3: display scale 1.0-16.5; unlabeled entries join the school's
+ * top labeled team (identity rule change).
  */
-export const MODEL_VERSION = "v2-exp.2";
+export const MODEL_VERSION = "v2-exp.3";
 export const PARSER_VERSION = "duosmium-adapter/1.1.0";
 
 export interface ModelParams {
@@ -40,8 +42,15 @@ export interface ModelParams {
   minComparableEventFraction: number;
   /** A rated profile with no eligible result within this many days is "inactive". */
   inactiveAfterDays: number;
-  /** Display-scale mapping: USR = scaleMax / (1 + exp(-z / scaleSpread)). */
+  /**
+   * Display scale (presentation only; ordering uses the latent z):
+   *   USR = scaleMin + (scaleMax - scaleMin) / (1 + exp(-(z - scaleCenter) / scaleSpread))
+   * Fixed per model version. Center/spread were chosen so the observed range of
+   * overall ratings (z ≈ -1.5 … 3.2 in 2025-26) spans ≈ 1.3 … 16.2.
+   */
+  scaleMin: number;
   scaleMax: number;
+  scaleCenter: number;
   scaleSpread: number;
 }
 
@@ -58,8 +67,10 @@ export const DEFAULT_PARAMS: ModelParams = {
   minTournaments: 3,
   minComparableEventFraction: 1,
   inactiveAfterDays: 180,
-  scaleMax: 20,
-  scaleSpread: 2,
+  scaleMin: 1,
+  scaleMax: 16.5,
+  scaleCenter: 0.85,
+  scaleSpread: 0.6,
 };
 
 /** Original overall-placement Elo, retained only as a backtesting baseline. */
