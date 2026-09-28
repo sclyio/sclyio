@@ -80,6 +80,8 @@ export interface SnapshotResult {
   diagnostics: EventDiagnostics[];
   fieldFits: { fieldId: string; k: number; weight: number; n: number }[];
   overall: Map<string, OverallOut>;
+  /** Season Trend: overall z from a fit to the rated season's results only. */
+  trend: Map<string, number>;
 }
 
 export function formatWeight(format: string, p: ModelParams): number {
@@ -88,15 +90,19 @@ export function formatWeight(format: string, p: ModelParams): number {
   return 1;
 }
 
-export function observationWeight(o: { endDate: string; nSchools: number; format: string }, asOf: string, p: ModelParams) {
-  const age = daysBetween(o.endDate, asOf);
-  return Math.exp(-age / p.decayDays) * Math.pow(o.nSchools, p.fieldSizeExponent) * formatWeight(o.format, p);
+/** Season weight of a result when rating `season` (0 = outside the counted seasons). */
+export function seasonWeight(defSeason: number, season: number, p: ModelParams): number {
+  const age = season - defSeason;
+  return age >= 0 && age < p.seasonWeights.length ? p.seasonWeights[age] : 0;
 }
 
-/** Observations usable at asOf: completed on or before asOf, inside the rolling window. */
-export function inWindow(endDate: string, asOf: string, p: ModelParams): boolean {
-  if (endDate > asOf) return false;
-  return daysBetween(endDate, asOf) < p.windowDays;
+export function observationWeight(o: { defSeason: number; nSchools: number; format: string }, season: number, p: ModelParams) {
+  return seasonWeight(o.defSeason, season, p) * Math.pow(o.nSchools, p.fieldSizeExponent) * formatWeight(o.format, p);
+}
+
+/** Observations usable at asOf when rating `season`: completed by asOf, in one of the counted seasons. */
+export function inWindow(o: { endDate: string; defSeason: number }, asOf: string, season: number, p: ModelParams): boolean {
+  return o.endDate <= asOf && seasonWeight(o.defSeason, season, p) > 0;
 }
 
 export function evidenceLabel(component: number, appearances: number, nEff: number): EventRatingOut["evidence"] {
@@ -110,10 +116,11 @@ export function fitEventPool(
   eventDefId: string,
   obsAll: PoolObservation[],
   asOf: string,
+  season: number,
   p: ModelParams,
   view: RatingView,
 ): { state: EventFitState; ratings: EventRatingOut[]; diag: EventDiagnostics; fieldFits: SnapshotResult["fieldFits"] } {
-  const obs = obsAll.filter((o) => inWindow(o.endDate, asOf, p));
+  const obs = obsAll.filter((o) => inWindow(o, asOf, season, p));
   const entityIdx = new Map<string, number>();
   const fieldIdx = new Map<string, number>();
   const entityIds: string[] = [];
@@ -132,7 +139,7 @@ export function fitEventPool(
       fieldIdx.set(o.fieldId, f);
       fieldIds.push(o.fieldId);
     }
-    packed.push({ entity: e, field: f, x: o.x, w: observationWeight(o, asOf, p) });
+    packed.push({ entity: e, field: f, x: o.x, w: observationWeight(o, season, p) });
   }
   // Normalize weights to mean 1 within this fitted event pool.
   if (packed.length) {
@@ -222,7 +229,9 @@ export function fitEventPool(
 
 /**
  * Fit every official event of the target season and aggregate overall
- * ratings for entities with at least one current-season observation.
+ * ratings for entities with at least one current-season observation. The
+ * main rating uses the last seasons (season-weighted); the Season Trend
+ * repeats the fit with the rated season's results only.
  */
 export function computeSnapshot(args: {
   asOf: string;
@@ -239,6 +248,7 @@ export function computeSnapshot(args: {
   const eventRatings: EventRatingOut[] = [];
   const diagnostics: EventDiagnostics[] = [];
   const fieldFits: SnapshotResult["fieldFits"] = [];
+  const trendStates = new Map<string, EventFitState>();
   const entityInfo = new Map<
     string,
     { tournaments: Set<string>; obs: number; last: string | null; current: boolean; observed: Set<string> }
@@ -248,19 +258,17 @@ export function computeSnapshot(args: {
     const contributing = args.poolDefs.get(def) ?? [def];
     const obs: PoolObservation[] = [];
     for (const d of contributing) {
-      for (const o of args.observationsByDef.get(d) ?? []) {
-        // Team Performance uses only the target season's team entries.
-        if (view === "team" && o.defSeason !== season) continue;
-        obs.push(o);
-      }
+      for (const o of args.observationsByDef.get(d) ?? []) if (inWindow(o, asOf, season, p)) obs.push(o);
     }
-    const r = fitEventPool(def, obs, asOf, p, view);
+    const r = fitEventPool(def, obs, asOf, season, p, view);
     events.set(def, r.state);
     eventRatings.push(...r.ratings);
     diagnostics.push(r.diag);
     fieldFits.push(...r.fieldFits);
+    // Season Trend fit (skipped when every result is already from this season).
+    const current = obs.filter((o) => o.defSeason === season);
+    trendStates.set(def, current.length === obs.length ? r.state : fitEventPool(def, current, asOf, season, p, view).state);
     for (const o of obs) {
-      if (!inWindow(o.endDate, asOf, p)) continue;
       let info = entityInfo.get(o.entityId);
       if (!info) {
         entityInfo.set(o.entityId, (info = { tournaments: new Set(), obs: 0, last: null, current: false, observed: new Set() }));
@@ -273,12 +281,11 @@ export function computeSnapshot(args: {
     }
   }
 
-  const overall = new Map<string, OverallOut>();
-  for (const [entityId, info] of entityInfo) {
+  const overallOf = (states: Map<string, EventFitState>, entityId: string) => {
     const vals: (number | null)[] = [];
     let comparable = 0;
     for (const def of officialEventDefs) {
-      const st = events.get(def)!;
+      const st = states.get(def)!;
       if (st.component.get(entityId) === 0) {
         comparable++;
         vals.push(view === "school" ? st.q.get(entityId)! : st.s.get(entityId)!);
@@ -286,7 +293,13 @@ export function computeSnapshot(args: {
         vals.push(null); // missing or not nationally comparable -> latent prior
       }
     }
-    const z = view === "school" ? schoolOverall(vals, M) : teamOverall(vals, M);
+    return { z: view === "school" ? schoolOverall(vals, M) : teamOverall(vals, M), comparable };
+  };
+  const overall = new Map<string, OverallOut>();
+  const trend = new Map<string, number>();
+  for (const [entityId, info] of entityInfo) {
+    const { z, comparable } = overallOf(events, entityId);
+    if (info.current) trend.set(entityId, overallOf(trendStates, entityId).z);
     overall.set(entityId, {
       entityId,
       z,
@@ -299,7 +312,7 @@ export function computeSnapshot(args: {
       hasCurrentSeason: info.current,
     });
   }
-  return { asOf, events, eventRatings, diagnostics, fieldFits, overall };
+  return { asOf, events, eventRatings, diagnostics, fieldFits, overall, trend };
 }
 
 export type RatingStatus = "established" | "provisional" | "inactive";

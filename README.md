@@ -59,14 +59,16 @@ src/lib/source     duosmium-parse.ts    src/lib/identity        src/lib/db      
 ## Identity rules (summary)
 
 - School = normalized name + city + state; same-named schools elsewhere are never auto-merged. Reviewed aliases: `data/mappings/school-aliases.yaml`.
-- Teams are numbered by finish: at each tournament, a school's entries are ordered by official overall rank; the best finisher is that school's **Team 1** for the season, the next **Team 2**, and so on. Source labels ("Gold", "A") and tournament team numbers are not used, so a school's results are not scattered across many one-off labels. Exhibition entries are ordered after competitive ones. A team therefore means "the school's N-th best entry at each tournament", not a fixed roster. Reviewed entries in `data/mappings/team-identity.yaml` can exclude a specific entry.
-- Supersede/exclude files, record formats, canceled events, and withdrawn entries in `data/mappings/source-overrides.yaml`. Cross-season event equivalence for School Potential: `data/mappings/event-equivalence.yaml`.
+- Teams are numbered by finish: at each tournament, a school's entries are ordered by official overall rank; the best finisher is that school's **Team 1**, the next **Team 2**, and so on. A team spans seasons: Team 1 in 2000 and Team 1 in 2025 are the same team, with one results page. Source labels ("Gold", "A") and tournament team numbers are not used, so a school's results are not scattered across many one-off labels. Exhibition entries are ordered after competitive ones. A team therefore means "the school's N-th best entry at each tournament", not a fixed roster. Reviewed entries in `data/mappings/team-identity.yaml` can exclude a specific entry.
+- Supersede/exclude files, record formats, canceled events, and withdrawn entries in `data/mappings/source-overrides.yaml`. Cross-season event equivalence (which prior-season events count toward this season's events): `data/mappings/event-equivalence.yaml`.
 
-## Rating model (v2-exp.5)
+## Rating model (v2-exp.6)
 
-Implements the SentientTree-informed experimental v2 exactly as specified. Parameters live in `src/lib/rating/config.ts`: 400-day window, 200-day decay, N^0.25, online weight 0.5, λk = 1, λs = **1**, M from the season's official event list, established = all M events comparable plus 3 or more tournaments. Also:
+Implements the SentientTree-informed experimental v2 exactly as specified. Parameters live in `src/lib/rating/config.ts`: the last 4 seasons count, with season weights 1, 1/2, 1/4, 1/8 (most recent first), N^0.25, online weight 0.5, λk = 1, λs = **1**, M from the season's official event list, established = all M events comparable plus 3 or more tournaments. Also:
 
 - Preconditioned conjugate gradient solves the strictly convex fit. A solution is accepted only if one alternating update moves no parameter by ≥ 1e-7. The alternating method and a dense solver exist for verification (tests).
+- **Season Trend**: the same model fit to the rated season's results only, shown next to USR on rankings and team pages.
+- Prior-season results count toward a current event only through a mapped equivalent event (same event in an earlier season).
 - Graph components per event pool; only the largest component is nationally comparable.
 - Display scale (v2-exp.3): USR = 1 + 15.5 / (1 + e^(-(z - 0.85) / 0.6)), fixed per model version; 2025-26 overall ratings span about 1.3 to 16.2.
 - Non-participation penalty (v2-exp.4): in non-trial events, participation-only, no-show, and disqualified results rank below every placed team, in that official order (ties share a midrank). Trial events do not penalize non-participants.

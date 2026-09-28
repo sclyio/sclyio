@@ -20,6 +20,12 @@ export function teamLabel(designation: string | null | undefined) {
   return designation ? designation : "";
 }
 
+/** Season label: 2026 -> "2025-26" (seasons run September to June). */
+export const seasonLabel = (season: number) => `${season - 1}-${String(season).slice(2)}`;
+
+export const seasonRange = (first: number, last: number) =>
+  first === last ? seasonLabel(first) : `${seasonLabel(first)} to ${seasonLabel(last)}`;
+
 export function Avatar({ name, small }: { name: string; small?: boolean }) {
   return (
     <span className={small ? "avatar sm" : "avatar"} aria-hidden>
@@ -29,9 +35,21 @@ export function Avatar({ name, small }: { name: string; small?: boolean }) {
 }
 
 /** Rating badge with an evidence meter (share of official events rated). */
-export function RatingBadge({ value, label, coverage, sub }: { value: number | null | undefined; label: string; coverage?: number; sub?: string }) {
+export function RatingBadge({
+  value,
+  label,
+  coverage,
+  sub,
+  trend,
+}: {
+  value: number | null | undefined;
+  label: string;
+  coverage?: number;
+  sub?: string;
+  trend?: boolean;
+}) {
   return (
-    <div className="badge">
+    <div className={trend ? "badge trend" : "badge"}>
       <div className="badge-label">{label}</div>
       <div className="badge-value">{usr(value)}</div>
       {coverage !== undefined ? (

@@ -45,7 +45,8 @@ export function normDesignation(s: string | null | undefined): string {
   return normText(s);
 }
 
-export function teamSeasonId(schoolId: string, division: string, season: number, designation: string): string {
+/** A team spans seasons: school + division + team number (e.g. "c-troy-high-school-fullerton-ca--team-1"). */
+export function teamIdOf(schoolId: string, division: string, designation: string): string {
   const d = designation ? designation.replace(/ /g, "-") : "unlabeled";
-  return `${division.toLowerCase()}${season}-${schoolId}--${d}`;
+  return `${division.toLowerCase()}-${schoolId}--${d}`;
 }

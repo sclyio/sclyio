@@ -29,9 +29,9 @@ export async function compareData(view: RatingView, division: string, season: nu
     const label = labels[i];
     if (!label) {
       errors.push(`“${id}” was not found in the ${view === "team" ? "Team Performance" : "School Potential"} pool.`);
-    } else if (view === "team" && (label.division !== division || label.season !== season)) {
+    } else if (view === "team" && (label.division !== division || season < label.firstSeason! || season > label.season!)) {
       errors.push(
-        `${label.schoolName} ${label.designation || "(unlabeled)"} is a Division ${label.division} ${label.season} team; it cannot be compared in the Division ${division} ${season} pool.`,
+        `${label.schoolName} ${label.designation} did not compete in Division ${division} in ${season - 1}-${String(season).slice(2)}.`,
       );
     } else {
       accepted.push({ id, label });
@@ -61,8 +61,8 @@ export async function compareData(view: RatingView, division: string, season: nu
         view === "team"
           ? all<StandingRow>(
               `SELECT t.id, t.name, t.end_date, e.rank, (SELECT COUNT(*) FROM entries x WHERE x.tournament_id = t.id AND x.exhibition = 0) AS field
-               FROM entries e JOIN tournaments t ON t.id = e.tournament_id WHERE e.team_season_id = ? AND e.exhibition = 0`,
-              [e.label.id],
+               FROM entries e JOIN tournaments t ON t.id = e.tournament_id WHERE e.team_id = ? AND t.season = ? AND e.exhibition = 0`,
+              [e.label.id, season],
             )
           : all<StandingRow>(
               `SELECT t.id, t.name, t.end_date, MIN(e.rank) AS rank, (SELECT COUNT(*) FROM entries x WHERE x.tournament_id = t.id AND x.exhibition = 0) AS field
@@ -74,9 +74,10 @@ export async function compareData(view: RatingView, division: string, season: nu
         view === "team"
           ? all<{ tournament_event_id: string; model_rank: number }>(
               `SELECT r.tournament_event_id, r.place AS model_rank
-               FROM entries e JOIN event_results r ON r.tournament_id = e.tournament_id AND r.entry_id = e.id
-               WHERE e.team_season_id = ? AND r.status = 'placed' AND e.exhibition = 0`,
-              [e.label.id],
+               FROM entries e JOIN tournaments t ON t.id = e.tournament_id
+               JOIN event_results r ON r.tournament_id = e.tournament_id AND r.entry_id = e.id
+               WHERE e.team_id = ? AND t.season = ? AND r.status = 'placed' AND e.exhibition = 0`,
+              [e.label.id, season],
             )
           : all<{ tournament_event_id: string; model_rank: number }>(
               `SELECT r.tournament_event_id, MIN(r.place) AS model_rank
@@ -148,8 +149,8 @@ export async function compareCandidates(view: RatingView, division: string, seas
   const like = `%${nq.replace(/ /g, "%")}%`;
   if (view === "team") {
     return all<{ id: string; name: string; designation: string; state: string }>(
-      `SELECT ts.id, sc.name, ts.display_designation AS designation, sc.state FROM team_seasons ts JOIN schools sc ON sc.id = ts.school_id
-       WHERE ts.division = ? AND ts.season = ? AND sc.search_text LIKE ? ORDER BY sc.name, ts.designation LIMIT 20`,
+      `SELECT ts.id, sc.name, ts.display_designation AS designation, sc.state FROM teams ts JOIN schools sc ON sc.id = ts.school_id
+       WHERE ts.division = ? AND ? BETWEEN ts.first_season AND ts.last_season AND sc.search_text LIKE ? ORDER BY sc.name, ts.designation LIMIT 20`,
       [division, season, like],
     );
   }

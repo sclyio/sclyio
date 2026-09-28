@@ -67,10 +67,10 @@ export function defaultVariants(): Variant[] {
   return [
     { name: "v2-default", params: p },
     { name: "v2-online-weight-1", params: { ...p, onlineWeight: 1 } },
-    { name: "v2-decay-100", params: { ...p, decayDays: 100 } },
-    { name: "v2-decay-400", params: { ...p, decayDays: 400 } },
+    { name: "v2-current-season-only", params: { ...p, seasonWeights: [1] } },
+    { name: "v2-seasons-flat", params: { ...p, seasonWeights: [1, 1, 1, 1] } },
     { name: "v2-fieldsize-0", params: { ...p, fieldSizeExponent: 0 } },
-    { name: "v2-window-300", params: { ...p, windowDays: 300 } },
+    { name: "v2-2-seasons", params: { ...p, seasonWeights: [1, 0.5] } },
     { name: "v2-lambdaS-0.5", params: { ...p, lambdaS: 0.5 } },
     { name: "v2-lambdaS-2 (v2-exp.1)", params: { ...p, lambdaS: 2 } },
     { name: "v2-lambdaK-3", params: { ...p, lambdaK: 3 } },
@@ -277,7 +277,7 @@ function buildEloStandings(
     .all(division) as { id: string; end_date: string }[];
   const out: EloTournament[] = [];
   const qEntries = s.prepare(
-    `SELECT team_season_id AS id, rank FROM entries WHERE tournament_id=? AND exhibition=0 AND team_season_id IS NOT NULL AND rank IS NOT NULL`,
+    `SELECT team_id AS id, rank FROM entries WHERE tournament_id=? AND exhibition=0 AND team_id IS NOT NULL AND rank IS NOT NULL`,
   );
   for (const t of ts) {
     if (view === "team") {

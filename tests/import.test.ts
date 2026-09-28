@@ -107,8 +107,8 @@ describe("import pipeline (synthetic fixtures)", () => {
     expect(t.map((r) => r.division)).toEqual(["B", "C"]);
     const obs = q<{ division: string; entity_id: string }>(db, "SELECT DISTINCT division, entity_id FROM observations WHERE view='team'");
     for (const o of obs) expect(o.entity_id.startsWith(o.division.toLowerCase())).toBe(true);
-    // Division B and C team-seasons of the same school are distinct entities.
-    const ts = q<{ id: string }>(db, "SELECT id FROM team_seasons WHERE school_id LIKE 'alder-ridge%' ORDER BY id");
+    // Division B and C teams of the same school are distinct entities.
+    const ts = q<{ id: string }>(db, "SELECT id FROM teams WHERE school_id LIKE 'alder-ridge%' ORDER BY id");
     expect(ts.length).toBe(4);
   });
 
@@ -314,14 +314,14 @@ describe("identity resolution", () => {
       ],
       emptyMappings(),
     );
-    const id = (k: string) => r.entries.get(k)!.teamSeasonId;
+    const id = (k: string) => r.entries.get(k)!.teamId;
     expect(id("t1#2")).toBe(id("t2#7"));
     expect(id("t1#2")).toBe(id("t3#4"));
     expect(id("t1#2")).toMatch(/--team-1$/);
     expect(id("t1#1")).toBe(id("t2#3"));
     expect(id("t1#1")).toMatch(/--team-2$/);
-    expect(r.teamSeasons.size).toBe(2);
-    expect(r.teamSeasons.get(id("t1#2")!)!.displayDesignation).toBe("Team 1");
+    expect(r.teams.size).toBe(2);
+    expect(r.teams.get(id("t1#2")!)!.displayDesignation).toBe("Team 1");
   });
 
   it("orders exhibition and unranked entries after competitive finishers", () => {
@@ -333,21 +333,24 @@ describe("identity resolution", () => {
       ],
       emptyMappings(),
     );
-    expect(r.entries.get("t1#2")!.teamSeasonId).toMatch(/--team-1$/);
-    expect(r.entries.get("t1#3")!.teamSeasonId).toMatch(/--team-2$/);
-    expect(r.entries.get("t1#1")!.teamSeasonId).toMatch(/--team-3$/);
+    expect(r.entries.get("t1#2")!.teamId).toMatch(/--team-1$/);
+    expect(r.entries.get("t1#3")!.teamId).toMatch(/--team-2$/);
+    expect(r.entries.get("t1#1")!.teamId).toMatch(/--team-3$/);
   });
 
-  it("keeps divisions and seasons as separate teams", () => {
+  it("keeps a team across seasons but separates divisions", () => {
     const r = resolveIdentities(
       [
         { ...base, tournamentId: "t1", number: 1, school: S, suffix: null, rank: 1 },
         { ...base, tournamentId: "t2", number: 1, school: S, suffix: null, rank: 1, division: "B" },
-        { ...base, tournamentId: "t3", number: 1, school: S, suffix: null, rank: 1, season: 2025 },
+        { ...base, tournamentId: "t3", number: 1, school: S, suffix: null, rank: 1, season: 2001 },
       ],
       emptyMappings(),
     );
-    expect(new Set(["t1#1", "t2#1", "t3#1"].map((k) => r.entries.get(k)!.teamSeasonId)).size).toBe(3);
+    const id = (k: string) => r.entries.get(k)!.teamId!;
+    expect(id("t1#1")).toBe(id("t3#1"));
+    expect(id("t2#1")).not.toBe(id("t1#1"));
+    expect(r.teams.get(id("t1#1"))).toMatchObject({ firstSeason: 2001, lastSeason: 2026, displayDesignation: "Team 1" });
   });
 
   it("applies reviewed aliases and unresolved-entry mappings", () => {
@@ -367,7 +370,7 @@ describe("identity resolution", () => {
     );
     expect(r.schools.size).toBe(1);
     expect(r.entries.get("t1#1")!.resolution).toBe("unresolved");
-    expect(r.entries.get("t1#2")!.teamSeasonId).toMatch(/--team-1$/);
+    expect(r.entries.get("t1#2")!.teamId).toMatch(/--team-1$/);
     expect(schoolMatchKey({ name: "Alder Ridge H.S.", city: "Springfield", state: "zz" })).toBe("alder ridge h s|springfield|ZZ");
   });
 });

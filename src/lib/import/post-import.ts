@@ -64,17 +64,15 @@ export function postImport(db: DB, mappings: Mappings, preliminary: Set<string>,
     for (const sc of res.schools.values()) {
       insSchool.run(sc.id, sc.name, sc.city, sc.state, sc.matchKey, normText(`${sc.name} ${sc.city ?? ""} ${sc.state}`));
     }
-    s.prepare(`DELETE FROM team_seasons`).run();
-    const insTs = s.prepare(
-      `INSERT INTO team_seasons (id, school_id, division, season, designation, display_designation, mapping_note) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    s.prepare(`DELETE FROM teams`).run();
+    const insTeam = s.prepare(
+      `INSERT INTO teams (id, school_id, division, designation, display_designation, first_season, last_season, mapping_note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    for (const t of res.teamSeasons.values()) {
-      insTs.run(t.id, t.schoolId, t.division, t.season, t.designation, t.displayDesignation, t.mappingNote);
+    for (const t of res.teams.values()) {
+      insTeam.run(t.id, t.schoolId, t.division, t.designation, t.displayDesignation, t.firstSeason, t.lastSeason, t.mappingNote);
     }
-    const updEntry = s.prepare(
-      `UPDATE entries SET school_id=?, team_season_id=?, resolution=?, resolution_reason=? WHERE id=?`,
-    );
-    for (const [key, e] of res.entries) updEntry.run(e.schoolId, e.teamSeasonId, e.resolution, e.reason, key);
+    const updEntry = s.prepare(`UPDATE entries SET school_id=?, team_id=?, resolution=?, resolution_reason=? WHERE id=?`);
+    for (const [key, e] of res.entries) updEntry.run(e.schoolId, e.teamId, e.resolution, e.reason, key);
 
     // 3. Event definitions (division + season scoped).
     const meta = s.prepare(`SELECT division, season, events FROM event_metadata`).all() as {
@@ -178,7 +176,7 @@ export function postImport(db: DB, mappings: Mappings, preliminary: Set<string>,
     `SELECT id, event_def_id AS eventDefId, model_eligible AS modelEligible, (trial OR trialed) AS trial FROM tournament_events WHERE tournament_id=?`,
   );
   const qEntries = s.prepare(
-    `SELECT id, school_id AS schoolId, team_season_id AS teamSeasonId, exhibition, disqualified, withdrawn, number FROM entries WHERE tournament_id=?`,
+    `SELECT id, school_id AS schoolId, team_id AS teamId, exhibition, disqualified, withdrawn, number FROM entries WHERE tournament_id=?`,
   );
   const qResults = s.prepare(
     `SELECT entry_id AS entryId, tournament_event_id AS tournamentEventId, status, place, exempt FROM event_results WHERE tournament_id=?`,
@@ -199,7 +197,7 @@ export function postImport(db: DB, mappings: Mappings, preliminary: Set<string>,
       (e): ObsEntry => ({
         id: e.id as string,
         schoolId: e.schoolId as string,
-        teamSeasonId: (e.teamSeasonId as string | null) ?? null,
+        teamId: (e.teamId as string | null) ?? null,
         exhibition: Boolean(e.exhibition),
         disqualified: Boolean(e.disqualified),
         withdrawn: Boolean(e.withdrawn),
@@ -246,7 +244,7 @@ export function postImport(db: DB, mappings: Mappings, preliminary: Set<string>,
   const identity = {
     unresolvedEntries: (s.prepare(`SELECT COUNT(*) c FROM entries WHERE resolution='unresolved'`).get() as { c: number }).c,
     schools: (s.prepare(`SELECT COUNT(*) c FROM schools`).get() as { c: number }).c,
-    teamSeasons: (s.prepare(`SELECT COUNT(*) c FROM team_seasons`).get() as { c: number }).c,
+    teams: (s.prepare(`SELECT COUNT(*) c FROM teams`).get() as { c: number }).c,
   };
   s.prepare(`INSERT INTO kv (key, value) VALUES ('mappings_fingerprint', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`).run(
     mappings.fingerprint,

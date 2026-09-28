@@ -96,21 +96,20 @@ export const schools = sqliteTable(
   (t) => [uniqueIndex("schools_match").on(t.matchKey), index("schools_state").on(t.state)],
 );
 
-export const teamSeasons = sqliteTable(
-  "team_seasons",
+/** A school's N-th team in one division, across all seasons (Team 1 = best finisher at each tournament). */
+export const teams = sqliteTable(
+  "teams",
   {
     id: text("id").primaryKey(),
     schoolId: text("school_id").notNull(),
     division: text("division").notNull(),
-    season: integer("season").notNull(),
-    designation: text("designation").notNull(), // normalized; "" = unlabeled
+    designation: text("designation").notNull(), // normalized, e.g. "team 1"
     displayDesignation: text("display_designation").notNull(),
+    firstSeason: integer("first_season").notNull(),
+    lastSeason: integer("last_season").notNull(),
     mappingNote: text("mapping_note"),
   },
-  (t) => [
-    index("team_seasons_school").on(t.schoolId),
-    uniqueIndex("team_seasons_key").on(t.schoolId, t.division, t.season, t.designation),
-  ],
+  (t) => [index("teams_school").on(t.schoolId)],
 );
 
 /* ------------------------------------------------------------------ */
@@ -213,7 +212,7 @@ export const entries = sqliteTable(
     tournamentId: text("tournament_id").notNull(),
     number: integer("number").notNull(),
     schoolId: text("school_id").notNull(),
-    teamSeasonId: text("team_season_id"),
+    teamId: text("team_id"),
     resolution: text("resolution").notNull(), // resolved | unresolved
     resolutionReason: text("resolution_reason"),
     rawSchool: text("raw_school").notNull(),
@@ -235,7 +234,7 @@ export const entries = sqliteTable(
   },
   (t) => [
     index("entries_tournament").on(t.tournamentId),
-    index("entries_team").on(t.teamSeasonId),
+    index("entries_team").on(t.teamId),
     index("entries_school").on(t.schoolId),
   ],
 );
@@ -283,7 +282,7 @@ export const observations = sqliteTable(
   {
     view: text("view").notNull(), // team | school
     tournamentEventId: text("tournament_event_id").notNull(),
-    entityId: text("entity_id").notNull(), // team_season id or school id
+    entityId: text("entity_id").notNull(), // team id or school id
     tournamentId: text("tournament_id").notNull(),
     eventDefId: text("event_def_id").notNull(),
     division: text("division").notNull(),
@@ -366,6 +365,9 @@ export const overallRatings = sqliteTable(
     dOther: real("d_other"),
     explain: text("explain"), // JSON: top events changed, new tournaments
     eventVector: text("event_vector"), // JSON compact [eventDefId, value][] for history
+    /** Season Trend: the same model fit to the current season's results only. */
+    trendZ: real("trend_z"),
+    trendUsr: real("trend_usr"),
   },
   (t) => [
     primaryKey({ columns: [t.snapshotId, t.entityId] }),

@@ -1,5 +1,5 @@
 import type { Mappings } from "./mappings";
-import { normText, schoolIdFromKey, schoolMatchKey, teamSeasonId } from "./normalize";
+import { normText, schoolIdFromKey, schoolMatchKey, teamIdOf } from "./normalize";
 
 export interface RawEntry {
   tournamentId: string;
@@ -18,7 +18,7 @@ export interface RawEntry {
 
 export interface ResolvedEntry {
   schoolId: string;
-  teamSeasonId: string | null;
+  teamId: string | null;
   designation: string | null;
   displayDesignation: string | null;
   resolution: "resolved" | "unresolved";
@@ -33,19 +33,20 @@ export interface ResolvedSchool {
   matchKey: string;
 }
 
-export interface ResolvedTeamSeason {
+export interface ResolvedTeam {
   id: string;
   schoolId: string;
   division: string;
-  season: number;
   designation: string;
   displayDesignation: string;
+  firstSeason: number;
+  lastSeason: number;
   mappingNote: string | null;
 }
 
 export interface Resolution {
   schools: Map<string, ResolvedSchool>;
-  teamSeasons: Map<string, ResolvedTeamSeason>;
+  teams: Map<string, ResolvedTeam>;
   entries: Map<string, ResolvedEntry>; // key: tournamentId#number
 }
 
@@ -61,7 +62,8 @@ export const entryKey = (tournamentId: string, number: number) => `${tournamentI
  *    "Team 1" for the season, the next "Team 2", and so on. Team labels in the
  *    source (e.g. "Gold", "A") and tournament team numbers are not used.
  *    Exhibition entries are ordered after competitive entries.
- *  - TeamSeason = school + division + season + team number.
+ *  - Team = school + division + team number, across seasons: Team 1 in 2000
+ *    and Team 1 in 2025 are the same team.
  *  - A reviewed mapping can mark an entry unresolved (excluded from team ratings).
  */
 export function resolveIdentities(raw: RawEntry[], mappings: Mappings): Resolution {
@@ -110,7 +112,7 @@ export function resolveIdentities(raw: RawEntry[], mappings: Mappings): Resoluti
   }
 
   const entries = new Map<string, ResolvedEntry>();
-  const teamSeasons = new Map<string, ResolvedTeamSeason>();
+  const teams = new Map<string, ResolvedTeam>();
   const INF = Number.POSITIVE_INFINITY;
   for (const group of groups.values()) {
     const schoolId = schoolIdFromKey(schoolOf.get(entryKey(group[0].tournamentId, group[0].number))!.key);
@@ -124,7 +126,7 @@ export function resolveIdentities(raw: RawEntry[], mappings: Mappings): Resoluti
       if (forced) {
         entries.set(key, {
           schoolId,
-          teamSeasonId: null,
+          teamId: null,
           designation: null,
           displayDesignation: r.suffix,
           resolution: "unresolved",
@@ -135,14 +137,27 @@ export function resolveIdentities(raw: RawEntry[], mappings: Mappings): Resoluti
       n++;
       const designation = `team ${n}`;
       const display = `Team ${n}`;
-      const id = teamSeasonId(schoolId, r.division, r.season, designation);
-      if (!teamSeasons.has(id)) {
-        teamSeasons.set(id, { id, schoolId, division: r.division, season: r.season, designation, displayDesignation: display, mappingNote: null });
+      const id = teamIdOf(schoolId, r.division, designation);
+      const team = teams.get(id);
+      if (!team) {
+        teams.set(id, {
+          id,
+          schoolId,
+          division: r.division,
+          designation,
+          displayDesignation: display,
+          firstSeason: r.season,
+          lastSeason: r.season,
+          mappingNote: null,
+        });
+      } else {
+        team.firstSeason = Math.min(team.firstSeason, r.season);
+        team.lastSeason = Math.max(team.lastSeason, r.season);
       }
-      entries.set(key, { schoolId, teamSeasonId: id, designation, displayDesignation: display, resolution: "resolved", reason: null });
+      entries.set(key, { schoolId, teamId: id, designation, displayDesignation: display, resolution: "resolved", reason: null });
     }
   }
-  return { schools, teamSeasons, entries };
+  return { schools, teams, entries };
 }
 
 export const _test = { normText };

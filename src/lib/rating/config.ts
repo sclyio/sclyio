@@ -15,15 +15,20 @@
  * full Duosmium history imported.
  * v2-exp.5: teams numbered by finish within each tournament (Team 1 = the
  * school's best-finishing entry), replacing source team labels.
+ * v2-exp.6: teams span seasons (Team 1 in 2000 = Team 1 in 2025). Ratings use
+ * the last 4 seasons with season weights 1, 1/2, 1/4, 1/8 (replacing the
+ * 400-day window and 200-day decay); Season Trend = current season only.
  */
-export const MODEL_VERSION = "v2-exp.5";
+export const MODEL_VERSION = "v2-exp.6";
 export const PARSER_VERSION = "duosmium-adapter/1.1.0";
 
 export interface ModelParams {
-  /** Rolling window: only results completed within this many days of as-of. */
-  windowDays: number;
-  /** Recency decay constant in exp(-age_days / decayDays). */
-  decayDays: number;
+  /**
+   * Season weights, most recent first: results from the rated season get
+   * seasonWeights[0], the season before seasonWeights[1], and so on. Seasons
+   * beyond the list do not count (length 4 = the last 4 seasons).
+   */
+  seasonWeights: number[];
   /** Exponent on unique eligible schools in the event field. */
   fieldSizeExponent: number;
   /** format_weight for explicitly online / satellite tournaments. */
@@ -59,8 +64,7 @@ export interface ModelParams {
 }
 
 export const DEFAULT_PARAMS: ModelParams = {
-  windowDays: 400,
-  decayDays: 200,
+  seasonWeights: [1, 0.5, 0.25, 0.125],
   fieldSizeExponent: 0.25,
   onlineWeight: 0.5,
   unknownFormatWeight: 1,

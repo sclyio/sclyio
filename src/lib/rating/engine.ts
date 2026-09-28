@@ -99,7 +99,7 @@ export function rebuildRatings(opts: RebuildOptions) {
       (s.prepare(`SELECT id, state FROM schools`).all() as { id: string; state: string }[]).map((r) => [r.id, r.state]),
     );
     const teamSchool = new Map(
-      (s.prepare(`SELECT id, school_id FROM team_seasons`).all() as { id: string; school_id: string }[]).map((r) => [
+      (s.prepare(`SELECT id, school_id FROM teams`).all() as { id: string; school_id: string }[]).map((r) => [
         r.id,
         r.school_id,
       ]),
@@ -113,8 +113,9 @@ export function rebuildRatings(opts: RebuildOptions) {
     );
     const insOverall = s.prepare(
       `INSERT INTO overall_ratings (snapshot_id, entity_id, z, usr, status, national_rank, state_rank, state, comparable_events,
-        observed_events, tournaments, observations, last_competition, prev_z, d_added, d_recency, d_field, d_other, explain, event_vector)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+        observed_events, tournaments, observations, last_competition, prev_z, d_added, d_recency, d_field, d_other, explain, event_vector,
+        trend_z, trend_usr)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
     );
     const insEvent = s.prepare(
       `INSERT INTO event_ratings (snapshot_id, entity_id, event_def_id, value, skill, usr, appearances, unique_opponents, n_eff, last_date,
@@ -380,6 +381,8 @@ function writeSnapshot(a: {
         att.dField,
         att.dOther,
         JSON.stringify({ e: top, t: newTournaments(o.entityId) }),
+        snap.trend.get(o.entityId) ?? null,
+        snap.trend.has(o.entityId) ? toUsr(snap.trend.get(o.entityId)!, p) : null,
       );
     }
     if (a.detail) {
@@ -435,8 +438,8 @@ function copySnapshots(db: DB, fromBuild: number, toBuild: number, before: strin
       );
       s.prepare(
         `INSERT INTO overall_ratings SELECT ?, entity_id, z, usr, status, national_rank, state_rank, state, comparable_events, observed_events,
-          tournaments, observations, last_competition, prev_z, d_added, d_recency, d_field, d_other, explain, event_vector
-         FROM overall_ratings WHERE snapshot_id=?`,
+          tournaments, observations, last_competition, prev_z, d_added, d_recency, d_field, d_other, explain, event_vector,
+          trend_z, trend_usr FROM overall_ratings WHERE snapshot_id=?`,
       ).run(newId, sn.id);
       s.prepare(
         `INSERT INTO event_ratings SELECT ?, entity_id, event_def_id, value, skill, usr, appearances, unique_opponents, n_eff, last_date,
@@ -473,7 +476,7 @@ function computeFieldStrength(db: DB, buildId: number) {
         const entities =
           view === "team"
             ? (s
-                .prepare(`SELECT DISTINCT team_season_id AS id FROM entries WHERE tournament_id=? AND exhibition=0`)
+                .prepare(`SELECT DISTINCT team_id AS id FROM entries WHERE tournament_id=? AND exhibition=0`)
                 .all(t.id) as { id: string | null }[])
             : (s.prepare(`SELECT DISTINCT school_id AS id FROM entries WHERE tournament_id=? AND exhibition=0`).all(t.id) as {
                 id: string | null;

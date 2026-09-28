@@ -15,11 +15,11 @@ export async function search(q: string, limit = 25) {
       [like, limit],
     ),
     all<{ id: string; division: string; season: number; designation: string; name: string; state: string; usr: number | null }>(
-      `SELECT ts.id, ts.division, ts.season, ts.display_designation AS designation, sc.name, sc.state,
+      `SELECT ts.id, ts.division, ts.last_season AS season, ts.display_designation AS designation, sc.name, sc.state,
               (SELECT o.usr FROM snapshots s JOIN overall_ratings o ON o.snapshot_id = s.id AND o.entity_id = ts.id
-               WHERE s.build_id = ? AND s.division = ts.division AND s.view = 'team' AND s.season = ts.season ORDER BY s.as_of DESC LIMIT 1) AS usr
-       FROM team_seasons ts JOIN schools sc ON sc.id = ts.school_id
-       WHERE sc.search_text LIKE ? ORDER BY ts.season DESC, sc.name, ts.division, ts.designation LIMIT ?`,
+               WHERE s.build_id = ? AND s.division = ts.division AND s.view = 'team' AND s.season = ts.last_season ORDER BY s.as_of DESC LIMIT 1) AS usr
+       FROM teams ts JOIN schools sc ON sc.id = ts.school_id
+       WHERE sc.search_text LIKE ? ORDER BY ts.last_season DESC, sc.name, ts.division, ts.designation LIMIT ?`,
       [build, like, limit * 2],
     ),
     all<{ id: string; name: string; division: string; level: string; end_date: string }>(
@@ -42,22 +42,22 @@ export async function teamDirectory(p: { q?: string; division?: string; season?:
     args.division = p.division;
   }
   if (p.season) {
-    where.push("ts.season = @season");
+    where.push("@season BETWEEN ts.first_season AND ts.last_season");
     args.season = p.season;
   }
   if (p.state) {
     where.push("sc.state = @state");
     args.state = p.state;
   }
-  const base = `FROM team_seasons ts JOIN schools sc ON sc.id = ts.school_id WHERE ${where.join(" AND ")}`;
+  const base = `FROM teams ts JOIN schools sc ON sc.id = ts.school_id WHERE ${where.join(" AND ")}`;
   const [count, rows] = await Promise.all([
     get<{ c: number }>(`SELECT COUNT(*) AS c ${base}`, args as InArgs),
     all(
-      `SELECT ts.id, ts.division, ts.season, ts.display_designation AS designation, sc.id AS school_id, sc.name, sc.city, sc.state,
-              (SELECT COUNT(*) FROM entries e WHERE e.team_season_id = ts.id) AS appearances,
+      `SELECT ts.id, ts.division, ts.last_season AS season, ts.first_season, ts.display_designation AS designation, sc.id AS school_id, sc.name, sc.city, sc.state,
+              (SELECT COUNT(*) FROM entries e WHERE e.team_id = ts.id) AS appearances,
               (SELECT o.usr || '|' || o.status FROM snapshots s JOIN overall_ratings o ON o.snapshot_id = s.id AND o.entity_id = ts.id
-               WHERE s.build_id = @build AND s.division = ts.division AND s.view = 'team' AND s.season = ts.season ORDER BY s.as_of DESC LIMIT 1) AS rating
-       ${base} ORDER BY ts.season DESC, sc.name, ts.division, ts.designation LIMIT ${pageSize} OFFSET ${(Math.max(1, p.page) - 1) * pageSize}`,
+               WHERE s.build_id = @build AND s.division = ts.division AND s.view = 'team' AND s.season = ts.last_season ORDER BY s.as_of DESC LIMIT 1) AS rating
+       ${base} ORDER BY ts.last_season DESC, sc.name, ts.division, ts.designation LIMIT ${pageSize} OFFSET ${(Math.max(1, p.page) - 1) * pageSize}`,
       { ...args, build: await buildId() } as InArgs,
     ),
   ]);

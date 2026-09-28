@@ -1,13 +1,19 @@
 import "server-only";
-import type { RatingView } from "../rating/config";
+import { DEFAULT_PARAMS, type RatingView } from "../rating/config";
 import { all, buildId, entityLabel, get, officialEvents, type EntityLabel } from "./common";
+
+/** Seasons counted by the rating (the rated season and the ones before it). */
+const SEASONS_BACK = DEFAULT_PARAMS.seasonWeights.length - 1;
 
 export interface HistoryPoint {
   asOf: string;
+  season: number;
   snapshotId: number;
   hasDetail: boolean;
   usr: number | null;
   z: number | null;
+  /** Season Trend (current season only). */
+  trendUsr: number | null;
   status: string | null;
   nationalRank: number | null;
   stateRank: number | null;
@@ -21,22 +27,41 @@ export interface HistoryPoint {
   explain: { e: [string, number, number, number, number][]; t: string[] } | null;
 }
 
+const HISTORY_COLUMNS = `s.id AS sid, s.season, s.as_of, s.has_event_detail, o.usr, o.z, o.trend_usr, o.status, o.national_rank, o.state_rank,
+  o.comparable_events, o.tournaments, o.prev_z, o.d_added, o.d_recency, o.d_field, o.d_other, o.explain`;
+
 /** Every refit of the pool, joined with this entity's rating (null before its first result). One query. */
 export async function history(view: RatingView, entityId: string, division: string, season: number): Promise<HistoryPoint[]> {
   const rows = await all(
-    `SELECT s.id AS sid, s.as_of, s.has_event_detail, o.usr, o.z, o.status, o.national_rank, o.state_rank, o.comparable_events,
-            o.tournaments, o.prev_z, o.d_added, o.d_recency, o.d_field, o.d_other, o.explain
+    `SELECT ${HISTORY_COLUMNS}
      FROM snapshots s LEFT JOIN overall_ratings o ON o.snapshot_id = s.id AND o.entity_id = ?
      WHERE s.build_id = ? AND s.division = ? AND s.view = ? AND s.season = ? ORDER BY s.as_of`,
     [entityId, await buildId(), division, view, season],
   );
+  return rows.map(toHistoryPoint);
+}
+
+/** Every refit, in every season, at which this team was rated. One query. */
+export async function teamHistory(teamId: string, division: string): Promise<HistoryPoint[]> {
+  const rows = await all(
+    `SELECT ${HISTORY_COLUMNS}
+     FROM snapshots s JOIN overall_ratings o ON o.snapshot_id = s.id AND o.entity_id = ?
+     WHERE s.build_id = ? AND s.division = ? AND s.view = 'team' ORDER BY s.as_of`,
+    [teamId, await buildId(), division],
+  );
+  return rows.map(toHistoryPoint);
+}
+
+function toHistoryPoint(o: Record<string, unknown>): HistoryPoint {
   const n = (v: unknown) => (v === null || v === undefined ? null : (v as number));
-  return rows.map((o) => ({
+  return {
     asOf: o.as_of as string,
+    season: o.season as number,
     snapshotId: o.sid as number,
     hasDetail: Boolean(o.has_event_detail),
     usr: n(o.usr),
     z: n(o.z),
+    trendUsr: n(o.trend_usr),
     status: (o.status as string | null) ?? null,
     nationalRank: n(o.national_rank),
     stateRank: n(o.state_rank),
@@ -48,11 +73,12 @@ export async function history(view: RatingView, entityId: string, division: stri
     dField: n(o.d_field),
     dOther: n(o.d_other),
     explain: o.explain ? JSON.parse(o.explain as string) : null,
-  }));
+  };
 }
 
 export interface AppearanceRow {
   tournamentId: string;
+  season: number;
   tournamentName: string;
   level: string;
   startDate: string;
@@ -83,18 +109,19 @@ function attachRefits<T extends { startDate: string; endDate: string }>(rows: T[
   });
 }
 
-export async function teamAppearances(teamSeasonId: string, hist: HistoryPoint[]): Promise<AppearanceRow[]> {
+export async function teamAppearances(teamId: string, hist: HistoryPoint[]): Promise<AppearanceRow[]> {
   const rows = await all(
-      `SELECT t.id, t.name, t.level, t.start_date, t.end_date, t.result_url, t.rating_eligible, t.exclusion_reason,
+      `SELECT t.id, t.name, t.season, t.level, t.start_date, t.end_date, t.result_url, t.rating_eligible, t.exclusion_reason,
               e.id AS entry_id, e.number, e.rank, e.points, e.track, e.track_rank, e.exhibition, e.penalty_points, e.raw_suffix, e.resolution,
               (SELECT COUNT(*) FROM entries x WHERE x.tournament_id = t.id AND x.exhibition = 0) AS field
        FROM entries e JOIN tournaments t ON t.id = e.tournament_id
-       WHERE e.team_season_id = ? ORDER BY t.start_date, t.id`,
-    [teamSeasonId],
+       WHERE e.team_id = ? ORDER BY t.start_date, t.id`,
+    [teamId],
   );
   return attachRefits(
     rows.map((r) => ({
       tournamentId: r.id as string,
+      season: r.season as number,
       tournamentName: r.name as string,
       level: r.level as string,
       startDate: r.start_date as string,
@@ -163,9 +190,8 @@ export async function eventBreakdown(
   season: number,
   snapshotId: number | null,
 ): Promise<EventBreakdownRow[]> {
-  // Official results (all statuses) for this entity's entries.
-  const entryFilter =
-    view === "team" ? `e.team_season_id = @id` : `e.school_id = @id AND t.division = @div AND t.season IN (@season, @season - 1)`;
+  // Official results (all statuses) for this entity's entries in the counted seasons.
+  const entryFilter = `${view === "team" ? "e.team_id = @id" : "e.school_id = @id AND t.division = @div"} AND t.season BETWEEN @season - @back AND @season`;
   const [official, ratingRows, countRows, results, obsRows, equivRows] = await Promise.all([
     officialEvents(division, season),
     snapshotId ? all(`SELECT * FROM event_ratings WHERE snapshot_id = ? AND entity_id = ?`, [snapshotId, entityId]) : Promise.resolve([]),
@@ -184,7 +210,7 @@ export async function eventBreakdown(
        JOIN tournament_events te ON te.id = r.tournament_event_id
        WHERE ${entryFilter}
        ORDER BY t.end_date`,
-      { id: entityId, div: division, season },
+      { id: entityId, div: division, season, back: SEASONS_BACK },
     ),
     all<{ tournament_event_id: string; model_rank: number; n: number; x: number; source_entry_id: string }>(
       `SELECT tournament_event_id, model_rank, n, x, source_entry_id FROM observations WHERE view = ? AND entity_id = ?`,
@@ -288,10 +314,10 @@ export function detailSnapshotId(hist: HistoryPoint[]): number | null {
   return withRating.length ? withRating[withRating.length - 1].snapshotId : null;
 }
 
-export async function teamSeason(id: string): Promise<(EntityLabel & { mappingNote: string | null }) | null> {
+export async function team(id: string): Promise<(EntityLabel & { mappingNote: string | null }) | null> {
   const l = await entityLabel("team", id);
   if (!l) return null;
-  const r = await get<{ mapping_note: string | null }>(`SELECT mapping_note FROM team_seasons WHERE id = ?`, [id]);
+  const r = await get<{ mapping_note: string | null }>(`SELECT mapping_note FROM teams WHERE id = ?`, [id]);
   return { ...l, mappingNote: r?.mapping_note ?? null };
 }
 
@@ -311,12 +337,12 @@ export async function schoolProfile(id: string) {
   const school = await entityLabel("school", id);
   if (!school) return null;
   const build = await buildId();
-  // Latest rating of each of this school's team-seasons and School Potential pools, in one query each.
+  // Latest rating of each of this school's teams and School Potential pools, in one query each.
   const [teams, pools, teamRatings, potentialRatings, unresolved, appearances] = await Promise.all([
-    all<{ id: string; division: string; season: number; designation: string; mapping_note: string | null; appearances: number }>(
-      `SELECT ts.id, ts.division, ts.season, ts.display_designation AS designation, ts.mapping_note,
-              (SELECT COUNT(*) FROM entries e WHERE e.team_season_id = ts.id) AS appearances
-       FROM team_seasons ts WHERE ts.school_id = ? ORDER BY ts.season DESC, ts.division, ts.designation`,
+    all<{ id: string; division: string; season: number; first_season: number; designation: string; mapping_note: string | null; appearances: number }>(
+      `SELECT ts.id, ts.division, ts.last_season AS season, ts.first_season, ts.display_designation AS designation, ts.mapping_note,
+              (SELECT COUNT(*) FROM entries e WHERE e.team_id = ts.id) AS appearances
+       FROM teams ts WHERE ts.school_id = ? ORDER BY ts.division, CAST(substr(ts.designation, 6) AS INTEGER)`,
       [id],
     ),
     all<{ division: string; season: number }>(
@@ -325,8 +351,8 @@ export async function schoolProfile(id: string) {
     ),
     all<LatestRating & { entity_id: string }>(
       `SELECT o.entity_id, o.usr, o.status, o.national_rank, o.comparable_events, s.as_of, s.official_events
-       FROM team_seasons ts
-       JOIN snapshots s ON s.build_id = ? AND s.division = ts.division AND s.view = 'team' AND s.season = ts.season
+       FROM teams ts
+       JOIN snapshots s ON s.build_id = ? AND s.division = ts.division AND s.view = 'team' AND s.season = ts.last_season
        JOIN overall_ratings o ON o.snapshot_id = s.id AND o.entity_id = ts.id
        WHERE ts.school_id = ? ORDER BY s.as_of`,
       [build, id],

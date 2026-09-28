@@ -37,6 +37,8 @@ export interface RankingRow {
   designation: string | null;
   usr: number;
   z: number;
+  /** Season Trend (current season only). */
+  trendUsr: number | null;
   status: string;
   nationalRank: number | null;
   stateRank: number | null;
@@ -92,7 +94,7 @@ export async function getRankings(p: RankingsParams): Promise<RankingsResult> {
 
   const team = p.view === "team";
   const joins = team
-    ? `JOIN team_seasons ts ON ts.id = o.entity_id JOIN schools sc ON sc.id = ts.school_id`
+    ? `JOIN teams ts ON ts.id = o.entity_id JOIN schools sc ON sc.id = ts.school_id`
     : `JOIN schools sc ON sc.id = o.entity_id`;
   const where: string[] = [`o.snapshot_id = @snap`];
   const args: Record<string, unknown> = { snap: snapshot.id, prev: compareSnapshot?.id ?? -1 };
@@ -118,7 +120,7 @@ export async function getRankings(p: RankingsParams): Promise<RankingsResult> {
     args.season = season;
     where.push(
       team
-        ? `EXISTS (SELECT 1 FROM entries e JOIN tournaments t ON t.id = e.tournament_id WHERE e.team_season_id = o.entity_id AND t.level = @level AND t.end_date <= @asOf)`
+        ? `EXISTS (SELECT 1 FROM entries e JOIN tournaments t ON t.id = e.tournament_id WHERE e.team_id = o.entity_id AND t.division = @div AND t.season = @season AND t.level = @level AND t.end_date <= @asOf)`
         : `EXISTS (SELECT 1 FROM entries e JOIN tournaments t ON t.id = e.tournament_id WHERE e.school_id = o.entity_id AND t.division = @div AND t.season = @season AND t.level = @level AND t.end_date <= @asOf)`,
     );
   }
@@ -127,7 +129,7 @@ export async function getRankings(p: RankingsParams): Promise<RankingsResult> {
   if (p.mode === "event" && p.event) {
     args.event = p.event;
     base = `SELECT o.entity_id, sc.id AS school_id, sc.name, sc.city, o.state, ${team ? "ts.display_designation" : "NULL"} AS designation,
-        er.usr, er.value AS z, o.status, o.national_rank, o.state_rank, pe.usr AS prev_usr, o.tournaments, o.comparable_events,
+        er.usr, er.value AS z, NULL AS trend_usr, o.status, o.national_rank, o.state_rank, pe.usr AS prev_usr, o.tournaments, o.comparable_events,
         er.last_date AS last_competition, er.event_rank, er.appearances, er.n_eff, er.evidence, er.component
       FROM event_ratings er
       JOIN overall_ratings o ON o.snapshot_id = er.snapshot_id AND o.entity_id = er.entity_id
@@ -136,7 +138,7 @@ export async function getRankings(p: RankingsParams): Promise<RankingsResult> {
       WHERE er.snapshot_id = @snap AND er.event_def_id = @event AND ${where.join(" AND ")}`;
   } else {
     base = `SELECT o.entity_id, sc.id AS school_id, sc.name, sc.city, o.state, ${team ? "ts.display_designation" : "NULL"} AS designation,
-        o.usr, o.z, o.status, o.national_rank, o.state_rank, po.usr AS prev_usr, o.tournaments, o.comparable_events, o.last_competition
+        o.usr, o.z, o.trend_usr, o.status, o.national_rank, o.state_rank, po.usr AS prev_usr, o.tournaments, o.comparable_events, o.last_competition
         ${team && p.onePerSchool ? `, ROW_NUMBER() OVER (PARTITION BY ts.school_id ORDER BY (o.status = 'established') DESC, o.z DESC, o.entity_id) AS school_pick` : ""}
       FROM overall_ratings o ${joins}
       LEFT JOIN overall_ratings po ON po.snapshot_id = @prev AND po.entity_id = o.entity_id
@@ -176,6 +178,7 @@ export async function getRankings(p: RankingsParams): Promise<RankingsResult> {
       designation: r.designation as string | null,
       usr: r.usr as number,
       z: r.z as number,
+      trendUsr: (r.trend_usr as number | null) ?? null,
       status: r.status as string,
       nationalRank: r.national_rank as number | null,
       stateRank: r.state_rank as number | null,

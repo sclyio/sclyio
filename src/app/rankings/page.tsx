@@ -145,6 +145,15 @@ export default async function RankingsPage(props: PageProps<"/rankings">) {
           </p>
         ) : (
           <ul className="rows">
+            {mode === "overall" ? (
+              <li className="row head">
+                <span className="rank">#</span>
+                <span className="who">{view === "team" ? "Team" : "School"}</span>
+                <span className="chg">Change</span>
+                <span className="pill-h">Season Trend</span>
+                <span className="pill-h">USR</span>
+              </li>
+            ) : null}
             {res.rows.map((r) => {
               const rank = mode === "event" ? r.eventRank : r.nationalRank;
               return (
@@ -160,6 +169,7 @@ export default async function RankingsPage(props: PageProps<"/rankings">) {
                     </div>
                   </span>
                   {mode === "overall" ? <Change v={r.prevUsr === null ? null : r.usr - r.prevUsr} /> : null}
+                  {mode === "overall" ? <span className="pill trend">{usr(r.trendUsr)}</span> : null}
                   <span className="pill">{usr(r.usr)}</span>
                 </li>
               );

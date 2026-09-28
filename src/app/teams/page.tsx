@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Avatar, Pager, teamLabel, usr } from "@/components/plain";
+import { Avatar, Pager, seasonRange, teamLabel, usr } from "@/components/plain";
 import { states } from "@/lib/queries/common";
 import { teamDirectory } from "@/lib/queries/search";
 import { tournamentFilters } from "@/lib/queries/tournaments";
@@ -63,8 +63,8 @@ export default async function TeamsPage(props: PageProps<"/teams">) {
                     {String(r.name)} {teamLabel(String(r.designation))}
                   </Link>
                   <div className="sub">
-                    {[r.city, r.state].filter(Boolean).map(String).join(", ")} · Division {String(r.division)} · {Number(r.season) - 1}-
-                    {String(r.season).slice(2)}
+                    {[r.city, r.state].filter(Boolean).map(String).join(", ")} · Division {String(r.division)} ·{" "}
+                    {seasonRange(Number(r.first_season), Number(r.season))}
                   </div>
                 </span>
                 <span className="pill">{r.rating ? usr(Number(String(r.rating).split("|")[0])) : "-"}</span>

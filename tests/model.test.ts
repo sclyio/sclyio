@@ -9,6 +9,7 @@ import {
   fitEventPool,
   inWindow,
   observationWeight,
+  seasonWeight,
   ratingStatus,
   type PoolObservation,
 } from "../src/lib/rating/model";
@@ -103,26 +104,26 @@ describe("graph components", () => {
 
 describe("weights, recency, and leakage", () => {
   const p = DEFAULT_PARAMS;
-  it("weights are positive and decrease with age (recency direction)", () => {
-    const recent = observationWeight({ endDate: "2026-03-01", nSchools: 20, format: "in-person" }, "2026-03-08", p);
-    const older = observationWeight({ endDate: "2025-11-01", nSchools: 20, format: "in-person" }, "2026-03-08", p);
-    expect(recent).toBeGreaterThan(0);
-    expect(older).toBeGreaterThan(0);
-    expect(recent).toBeGreaterThan(older);
+  it("counts the last 4 seasons, halving the weight each season back", () => {
+    expect([2026, 2025, 2024, 2023, 2022, 2027].map((s) => seasonWeight(s, 2026, p))).toEqual([1, 0.5, 0.25, 0.125, 0, 0]);
+    const cur = observationWeight({ defSeason: 2026, nSchools: 20, format: "in-person" }, 2026, p);
+    const prev = observationWeight({ defSeason: 2025, nSchools: 20, format: "in-person" }, 2026, p);
+    expect(prev / cur).toBeCloseTo(0.5, 12);
   });
   it("larger fields weigh more (quarter power) and online is discounted", () => {
-    const small = observationWeight({ endDate: "2026-03-01", nSchools: 16, format: "in-person" }, "2026-03-01", p);
-    const big = observationWeight({ endDate: "2026-03-01", nSchools: 81, format: "in-person" }, "2026-03-01", p);
+    const small = observationWeight({ defSeason: 2026, nSchools: 16, format: "in-person" }, 2026, p);
+    const big = observationWeight({ defSeason: 2026, nSchools: 81, format: "in-person" }, 2026, p);
     expect(big / small).toBeCloseTo(1.5, 10);
-    const online = observationWeight({ endDate: "2026-03-01", nSchools: 16, format: "online" }, "2026-03-01", p);
+    const online = observationWeight({ defSeason: 2026, nSchools: 16, format: "online" }, 2026, p);
     expect(online / small).toBeCloseTo(0.5, 12);
-    const unknown = observationWeight({ endDate: "2026-03-01", nSchools: 16, format: "unknown" }, "2026-03-01", p);
+    const unknown = observationWeight({ defSeason: 2026, nSchools: 16, format: "unknown" }, 2026, p);
     expect(unknown).toBeCloseTo(small, 12);
   });
   it("never uses results completed after the as-of date, and applies the window", () => {
-    expect(inWindow("2026-03-02", "2026-03-01", p)).toBe(false);
-    expect(inWindow("2026-03-01", "2026-03-01", p)).toBe(true);
-    expect(inWindow("2025-01-01", "2026-03-01", p)).toBe(false); // > 400 days
+    expect(inWindow({ endDate: "2026-03-02", defSeason: 2026 }, "2026-03-01", 2026, p)).toBe(false);
+    expect(inWindow({ endDate: "2026-03-01", defSeason: 2026 }, "2026-03-01", 2026, p)).toBe(true);
+    expect(inWindow({ endDate: "2023-03-01", defSeason: 2023 }, "2026-03-01", 2026, p)).toBe(true); // 4th season back
+    expect(inWindow({ endDate: "2022-03-01", defSeason: 2022 }, "2026-03-01", 2026, p)).toBe(false); // 5th season back
   });
   it("a snapshot ignores future observations entirely", () => {
     const obs: PoolObservation[] = [
@@ -131,8 +132,8 @@ describe("weights, recency, and leakage", () => {
       mk("b", "t2:e", "2026-02-10", 1, 2), // future relative to as-of
       mk("a", "t2:e", "2026-02-10", 2, 2),
     ];
-    const before = fitEventPool("C-2026-e", obs.slice(0, 2), "2026-01-11", p, "team");
-    const withFuture = fitEventPool("C-2026-e", obs, "2026-01-11", p, "team");
+    const before = fitEventPool("C-2026-e", obs.slice(0, 2), "2026-01-11", 2026, p, "team");
+    const withFuture = fitEventPool("C-2026-e", obs, "2026-01-11", 2026, p, "team");
     expect(withFuture.state.s.get("a")).toBe(before.state.s.get("a"));
     expect(withFuture.diag.observations).toBe(2);
   });
@@ -176,14 +177,27 @@ describe("snapshot aggregation and eligibility", () => {
     expect(ratingStatus(snap.overall.get("a")!, 2, "2026-01-11", p)).toBe("established");
   });
 
-  it("team view never uses prior-season results; school view uses only mapped equivalents", () => {
-    const team = computeSnapshot({ asOf: "2026-01-11", season: 2026, view: "team", officialEventDefs: defs, poolDefs, observationsByDef: byDef, params: p });
-    expect(team.overall.has("d")).toBe(false);
-    const school = computeSnapshot({ asOf: "2026-01-11", season: 2026, view: "school", officialEventDefs: defs, poolDefs, observationsByDef: byDef, params: p });
-    expect(school.events.get("C-2026-e1")!.s.has("d")).toBe(true);
-    // d has no current-season observation: excluded from current rankings.
-    expect(school.overall.get("d")!.hasCurrentSeason).toBe(false);
-    expect(school.events.get("C-2026-e2")!.s.has("d")).toBe(false);
+  it("both views count prior seasons through mapped equivalents; Season Trend uses only the current season", () => {
+    for (const view of ["team", "school"] as const) {
+      const snap = computeSnapshot({ asOf: "2026-01-11", season: 2026, view, officialEventDefs: defs, poolDefs, observationsByDef: byDef, params: p });
+      expect(snap.events.get("C-2026-e1")!.s.has("d")).toBe(true);
+      expect(snap.events.get("C-2026-e2")!.s.has("d")).toBe(false);
+      // d has no current-season observation: excluded from current rankings and the trend.
+      expect(snap.overall.get("d")!.hasCurrentSeason).toBe(false);
+      expect(snap.trend.has("d")).toBe(false);
+      const currentOnly = computeSnapshot({
+        asOf: "2026-01-11",
+        season: 2026,
+        view,
+        officialEventDefs: defs,
+        poolDefs,
+        observationsByDef: byDef,
+        params: { ...p, seasonWeights: [1] },
+      });
+      for (const id of ["a", "b", "c"]) expect(snap.trend.get(id)).toBeCloseTo(currentOnly.overall.get(id)!.z, 12);
+      // a's weak prior-season finish lowers its 4-season rating below its trend.
+      expect(snap.overall.get("a")!.z).toBeLessThan(snap.trend.get("a")!);
+    }
   });
 
   it("change attribution telescopes exactly to the overall change", () => {

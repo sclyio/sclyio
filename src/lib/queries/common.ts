@@ -66,6 +66,8 @@ export interface EntityLabel {
   state: string;
   designation: string | null; // team view only; "" = unlabeled
   division?: string;
+  /** Team view: seasons the team competed in (first..last). */
+  firstSeason?: number;
   season?: number;
 }
 
@@ -77,13 +79,24 @@ export const entityLabel = cache(async (view: RatingView, id: string): Promise<E
     );
     return r ? { id, view, schoolId: r.id, schoolName: r.name, city: r.city, state: r.state, designation: null } : null;
   }
-  const r = await get<{ d: string; division: string; season: number; sid: string; name: string; city: string | null; state: string }>(
-    `SELECT ts.display_designation AS d, ts.division, ts.season, sc.id AS sid, sc.name, sc.city, sc.state
-     FROM team_seasons ts JOIN schools sc ON sc.id = ts.school_id WHERE ts.id = ?`,
+  const r = await get<{ d: string; division: string; first: number; last: number; sid: string; name: string; city: string | null; state: string }>(
+    `SELECT tm.display_designation AS d, tm.division, tm.first_season AS first, tm.last_season AS last, sc.id AS sid, sc.name, sc.city, sc.state
+     FROM teams tm JOIN schools sc ON sc.id = tm.school_id WHERE tm.id = ?`,
     [id],
   );
   return r
-    ? { id, view, schoolId: r.sid, schoolName: r.name, city: r.city, state: r.state, designation: r.d, division: r.division, season: r.season }
+    ? {
+        id,
+        view,
+        schoolId: r.sid,
+        schoolName: r.name,
+        city: r.city,
+        state: r.state,
+        designation: r.d,
+        division: r.division,
+        firstSeason: r.first,
+        season: r.last,
+      }
     : null;
 });
 

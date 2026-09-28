@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { Avatar, RatingBadge, Tabs, teamLabel, usr } from "@/components/plain";
+import { Avatar, RatingBadge, seasonRange, Tabs, teamLabel, usr } from "@/components/plain";
 import { entityLabel } from "@/lib/queries/common";
 import { detailSnapshotId, eventBreakdown, history, schoolProfile } from "@/lib/queries/profiles";
 
@@ -81,7 +81,7 @@ export default async function SchoolPage(props: PageProps<"/schools/[slug]">) {
                     {p.school.schoolName} {teamLabel(t.designation)}
                   </Link>
                   <div className="sub">
-                    Division {t.division} · {t.season - 1}-{String(t.season).slice(2)} · {t.appearances} tournaments
+                    Division {t.division} · {seasonRange(t.first_season, t.season)} · {t.appearances} tournaments
                     {t.rating?.national_rank ? ` · #${t.rating.national_rank}` : ""}
                   </div>
                 </span>

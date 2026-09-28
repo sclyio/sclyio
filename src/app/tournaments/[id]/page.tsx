@@ -52,8 +52,8 @@ export default async function TournamentPage(props: PageProps<"/tournaments/[id]
                 <span className="rank">{e.rank ? String(e.rank) : "-"}</span>
                 <Avatar name={String(e.school_name)} small />
                 <span className="who">
-                  {e.team_season_id ? (
-                    <Link href={`/teams/${e.team_season_id}`}>
+                  {e.team_id ? (
+                    <Link href={`/teams/${e.team_id}`}>
                       {String(e.school_name)} {String(e.raw_suffix ?? "")}
                     </Link>
                   ) : (

@@ -28,7 +28,7 @@ export interface ObsEvent {
 export interface ObsEntry {
   id: string;
   schoolId: string;
-  teamSeasonId: string | null; // null = unresolved identity
+  teamId: string | null; // null = unresolved identity
   exhibition: boolean;
   disqualified: boolean; // team-level disqualification
   withdrawn: boolean;
@@ -132,12 +132,12 @@ export function deriveObservations(
       const ranks = midranks(eligible, key);
       for (const r of eligible) {
         const e = entryById.get(r.entryId)!;
-        if (!e.teamSeasonId) continue;
+        if (!e.teamId) continue;
         const rank = ranks.get(r)!;
         out.push({
           ...base,
           view: "team",
-          entityId: e.teamSeasonId,
+          entityId: e.teamId,
           sourceEntryId: e.id,
           sourcePlace: r.place ?? 0,
           modelRank: rank,

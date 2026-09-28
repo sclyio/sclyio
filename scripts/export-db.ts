@@ -33,7 +33,7 @@ db.transaction(() => {
 // large tables on every home/data page visit (slow remotely, billed per row).
 const counts = db
   .prepare(
-    `SELECT (SELECT COUNT(*) FROM schools) AS schools, (SELECT COUNT(*) FROM team_seasons) AS teamSeasons,
+    `SELECT (SELECT COUNT(*) FROM schools) AS schools, (SELECT COUNT(*) FROM teams) AS teams,
             (SELECT COUNT(*) FROM entries) AS entries, (SELECT COUNT(*) FROM entries WHERE resolution = 'unresolved') AS unresolved,
             (SELECT COUNT(*) FROM event_results) AS results, (SELECT COUNT(DISTINCT state) FROM schools) AS states`,
   )

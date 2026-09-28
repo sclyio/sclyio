@@ -43,7 +43,7 @@ export interface ImportSummary {
   quarantined: number;
   skipped: number;
   earliestAffectedDate: string | null;
-  identity: { unresolvedEntries: number; schools: number; teamSeasons: number };
+  identity: { unresolvedEntries: number; schools: number; teams: number };
 }
 
 export function chooseSeasons(ids: string[], today: string, requested: number[] | "auto" | "all"): number[] {
@@ -445,7 +445,7 @@ export function writeTournament(
     }
 
     const insEntry = s.prepare(
-      `INSERT INTO entries (id, tournament_id, number, school_id, team_season_id, resolution, resolution_reason, raw_school, raw_suffix,
+      `INSERT INTO entries (id, tournament_id, number, school_id, team_id, resolution, resolution_reason, raw_school, raw_suffix,
         raw_city, raw_state, school_abbreviation, track, exhibition, disqualified, withdrawn, rank, points, track_rank, track_points,
         penalty_points, earned_bid, medal_counts)
        VALUES (?, ?, ?, '', NULL, 'unresolved', 'pending identity resolution', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`,
