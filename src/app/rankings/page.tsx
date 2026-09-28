@@ -148,10 +148,11 @@ export default async function RankingsPage(props: PageProps<"/rankings">) {
             {mode === "overall" ? (
               <li className="row head">
                 <span className="rank">#</span>
+                <span className="avatar-sp" />
                 <span className="who">{view === "team" ? "Team" : "School"}</span>
-                <span className="chg">Change</span>
-                <span className="pill-h">Season Trend</span>
-                <span className="pill-h">USR</span>
+                <span className="col col-chg">Change</span>
+                <span className="col col-trend">Season Trend</span>
+                <span className="col col-usr">USR</span>
               </li>
             ) : null}
             {res.rows.map((r) => {
@@ -168,9 +169,21 @@ export default async function RankingsPage(props: PageProps<"/rankings">) {
                       {[r.city, r.state].filter(Boolean).join(", ")} · {r.tournaments} tournaments
                     </div>
                   </span>
-                  {mode === "overall" ? <Change v={r.prevUsr === null ? null : r.usr - r.prevUsr} /> : null}
-                  {mode === "overall" ? <span className="pill trend">{usr(r.trendUsr)}</span> : null}
-                  <span className="pill">{usr(r.usr)}</span>
+                  {mode === "overall" ? (
+                    <>
+                      <span className="col col-chg">
+                        <Change v={r.prevUsr === null ? null : r.usr - r.prevUsr} />
+                      </span>
+                      <span className="col col-trend">
+                        <span className="pill trend">{usr(r.trendUsr)}</span>
+                      </span>
+                      <span className="col col-usr">
+                        <span className="pill">{usr(r.usr)}</span>
+                      </span>
+                    </>
+                  ) : (
+                    <span className="pill">{usr(r.usr)}</span>
+                  )}
                 </li>
               );
             })}

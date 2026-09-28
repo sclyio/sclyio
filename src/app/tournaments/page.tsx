@@ -69,7 +69,7 @@ export default async function TournamentsPage(props: PageProps<"/tournaments">) 
             <li className="row head">
               {sort === "weight" ? <span className="rank">#</span> : null}
               <span className="who">Tournament</span>
-              <span className="pill-h">Weight</span>
+              <span className="col col-usr">Weight</span>
             </li>
             {rows.map((t, i) => (
               <li key={String(t.id)} className="row">
@@ -84,7 +84,9 @@ export default async function TournamentsPage(props: PageProps<"/tournaments">) 
                     {t.state ? ` · ${String(t.state)}` : ""} · {String(t.team_count)} teams
                   </div>
                 </span>
-                <span className="pill">{t.weight === null ? "-" : Number(t.weight).toFixed(1)}</span>
+                <span className="col col-usr">
+                  <span className="pill">{t.weight === null ? "-" : Number(t.weight).toFixed(1)}</span>
+                </span>
               </li>
             ))}
           </ul>

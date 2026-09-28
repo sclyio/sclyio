@@ -26,7 +26,11 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # The first run (no cache) imports every season and rebuilds all ratings;
+    # weekly runs after that are incremental and much shorter.
+    timeout-minutes: 240
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
     permissions:
       contents: read
     steps:
@@ -52,8 +56,6 @@ jobs:
       - name: Rebuild ratings (from earliest affected date)
         run: npm run ratings:rebuild -- ${{ inputs.full && '--full' || '' }}
       - run: npm test
-      - name: Backtest (only if the database has no results yet)
-        run: NODE_OPTIONS=--max-old-space-size=5120 npm run backtest -- --if-missing
       - name: Save database and source cache
         if: success()
         uses: actions/cache/save@v4
