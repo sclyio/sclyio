@@ -1,9 +1,12 @@
-# Scheduled data sync + rating rebuild.
+# Scheduled data sync + rating rebuild + publish to Turso.
 #
-# Keeps the SQLite database and the Duosmium blob cache in the Actions cache
-# so each run is incremental, then uploads a compact read-only deployment copy
-# as an artifact. Deployment itself is intentionally NOT automated here: add a
-# deploy step for your host once one has been chosen and authorized.
+# Keeps the working SQLite database and the Duosmium blob cache in the Actions
+# cache so each run is incremental, exports a compact read-only copy, and
+# publishes it to Turso (new database, verified, then an atomic pointer flip).
+# The Vercel site reads whatever dataset the pointer names; no redeploy needed.
+#
+# Required repository secrets: TURSO_API_TOKEN, TURSO_ORG.
+# Optional repository variables: TURSO_GROUP (default "default").
 name: sync-and-rebuild
 
 on:
@@ -23,7 +26,7 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -49,6 +52,8 @@ jobs:
       - name: Rebuild ratings (from earliest affected date)
         run: npm run ratings:rebuild -- ${{ inputs.full && '--full' || '' }}
       - run: npm test
+      - name: Backtest (only if the database has no results yet)
+        run: NODE_OPTIONS=--max-old-space-size=5120 npm run backtest -- --if-missing
       - name: Save database and source cache
         if: success()
         uses: actions/cache/save@v4
@@ -59,8 +64,9 @@ jobs:
           key: sclyio-data-${{ github.run_id }}
       - name: Export read-only deployment database
         run: npm run db:export -- --out dist-data/sclyio.db
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sclyio-db
-          path: dist-data/sclyio.db
-          retention-days: 7
+      - name: Publish to Turso
+        run: npm run publish:turso -- --file dist-data/sclyio.db
+        env:
+          TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
+          TURSO_ORG: ${{ secrets.TURSO_ORG }}
+          TURSO_GROUP: ${{ vars.TURSO_GROUP || 'default' }}

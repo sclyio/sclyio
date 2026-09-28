@@ -15,13 +15,13 @@ export default async function ComparePage(props: PageProps<"/compare">) {
   const sp = (await props.searchParams) as Record<string, string | string[] | undefined>;
   const view: RatingView = one(sp.view) === "school" ? "school" : "team";
   const division = one(sp.div) === "B" ? "B" : "C";
-  const seasons = seasonsFor(division);
+  const seasons = await seasonsFor(division);
   const season = seasons.includes(Number(one(sp.season))) ? Number(one(sp.season)) : seasons[0];
   const ids = one(sp.ids).split(",").map((s) => s.trim()).filter(Boolean);
   const unique = [...new Set(ids)];
   const q = one(sp.q);
-  const data = season ? compareData(view, division, season, unique) : null;
-  const candidates = season && q ? compareCandidates(view, division, season, q) : [];
+  const data = season ? await compareData(view, division, season, unique) : null;
+  const candidates = season && q ? await compareCandidates(view, division, season, q) : [];
   const base = (patch: Record<string, string | null>) => {
     const p = new URLSearchParams({ view, div: division, season: String(season ?? ""), ids: unique.join(",") });
     for (const [k, v] of Object.entries(patch)) {

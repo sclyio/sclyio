@@ -1,7 +1,8 @@
 import "server-only";
 import type { RatingView } from "../rating/config";
 import { addDays } from "../rating/math";
-import { normQuery, officialEvents, pickSnapshot, seasonsFor, snapshotsFor, sql, type SnapshotRow } from "./common";
+import type { InArgs } from "@libsql/client";
+import { all, get, normQuery, officialEvents, pickSnapshot, seasonsFor, snapshotsFor, type SnapshotRow } from "./common";
 
 export type SortKey = "rank" | "usr" | "change" | "tournaments" | "last" | "name";
 export type StatusFilter = "established" | "provisional" | "inactive" | "all";
@@ -62,17 +63,17 @@ export interface RankingsResult {
   eventDetailUnavailable: boolean;
 }
 
-export function getRankings(p: RankingsParams): RankingsResult {
-  const seasons = seasonsFor(p.division);
+export async function getRankings(p: RankingsParams): Promise<RankingsResult> {
+  const seasons = await seasonsFor(p.division);
   const season = p.season && seasons.includes(p.season) ? p.season : (seasons[0] ?? null);
   if (season === null) {
     return { snapshot: null, snapshots: [], seasons, season, compareSnapshot: null, rows: [], total: 0, eventDetailUnavailable: false };
   }
   if (p.mode === "event") {
-    const evs = officialEvents(p.division, season);
+    const evs = await officialEvents(p.division, season);
     if (!p.event || !evs.some((e) => e.id === p.event)) p = { ...p, event: evs[0]?.id };
   }
-  const snaps = snapshotsFor(p.division, p.view, season);
+  const snaps = await snapshotsFor(p.division, p.view, season);
   const snapshot = pickSnapshot(snaps, p.asOf, p.mode === "event");
   if (!snapshot) {
     return { snapshot: null, snapshots: snaps, seasons, season, compareSnapshot: null, rows: [], total: 0, eventDetailUnavailable: p.mode === "event" };
@@ -153,11 +154,11 @@ export function getRankings(p: RankingsParams): RankingsResult {
     last: `last_competition ${dir}, z DESC`,
     name: `name ${dir === "DESC" ? "DESC" : "ASC"}, designation`,
   };
-  const db = sql();
-  const total = (db.prepare(`SELECT COUNT(*) AS c FROM (${filtered})`).get(args) as { c: number }).c;
-  const rows = db
-    .prepare(`${filtered} ORDER BY ${order[p.sort]} LIMIT ${PAGE_SIZE} OFFSET ${(Math.max(1, p.page) - 1) * PAGE_SIZE}`)
-    .all(args) as Record<string, unknown>[];
+  const [count, rows] = await Promise.all([
+    get<{ c: number }>(`SELECT COUNT(*) AS c FROM (${filtered})`, args as InArgs),
+    all(`${filtered} ORDER BY ${order[p.sort]} LIMIT ${PAGE_SIZE} OFFSET ${(Math.max(1, p.page) - 1) * PAGE_SIZE}`, args as InArgs),
+  ]);
+  const total = count?.c ?? 0;
   return {
     snapshot,
     snapshots: snaps,
@@ -191,6 +192,6 @@ export function getRankings(p: RankingsParams): RankingsResult {
   };
 }
 
-export function levels(): string[] {
-  return (sql().prepare(`SELECT DISTINCT level FROM tournaments ORDER BY level`).all() as { level: string }[]).map((r) => r.level);
+export async function levels(): Promise<string[]> {
+  return (await all<{ level: string }>(`SELECT DISTINCT level FROM tournaments ORDER BY level`)).map((r) => r.level);
 }

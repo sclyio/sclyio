@@ -45,4 +45,4 @@ next-env.d.ts
 /data/*.db-*
 /.cache/
 /dist-data/
-.cache-*.log
+.cache-*

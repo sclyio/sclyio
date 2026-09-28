@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 export async function generateMetadata(props: PageProps<"/schools/[slug]">): Promise<Metadata> {
   const { slug } = await props.params;
-  const s = entityLabel("school", decodeURIComponent(slug));
+  const s = await entityLabel("school", decodeURIComponent(slug));
   return { title: s ? s.schoolName : "School" };
 }
 
@@ -22,17 +22,17 @@ export default async function SchoolPage(props: PageProps<"/schools/[slug]">) {
   const { slug } = await props.params;
   const id = decodeURIComponent(slug);
   const sp = (await props.searchParams) as Record<string, string | undefined>;
-  const p = schoolProfile(id);
+  const p = await schoolProfile(id);
   if (!p) notFound();
   const { school } = p;
   const pools = p.potential;
   const chosen = pools.find((x) => `${x.division}-${x.season}` === sp.pool) ?? pools.find((x) => x.rating) ?? pools[0];
 
-  const hist = chosen ? history("school", id, chosen.division, chosen.season) : [];
+  const hist = chosen ? await history("school", id, chosen.division, chosen.season) : [];
   const detailId = detailSnapshotId(hist);
-  const breakdown = chosen ? eventBreakdown("school", id, chosen.division, chosen.season, detailId) : [];
+  const breakdown = chosen ? await eventBreakdown("school", id, chosen.division, chosen.season, detailId) : [];
   const tNames = new Map(p.appearances.map((a) => [a.id as string, a.name as string]));
-  const corrections = correctionsFor([...tNames.keys()]);
+  const [corrections, names] = await Promise.all([correctionsFor([...tNames.keys()]), eventNames()]);
   const latest = [...hist].reverse().find((h) => h.usr !== null) ?? null;
   const seasons = [...new Set(p.teams.map((t) => t.season))];
 
@@ -197,7 +197,7 @@ export default async function SchoolPage(props: PageProps<"/schools/[slug]">) {
                 </table>
               </details>
             </Panel>
-            <WhyChanged hist={hist} eventNames={eventNames()} tournamentNames={tNames} corrections={corrections} view="school" />
+            <WhyChanged hist={hist} eventNames={names} tournamentNames={tNames} corrections={corrections} view="school" />
             <Section
               id="potential-events"
               title="School Potential by event"

@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "Search" };
 export default async function SearchPage(props: PageProps<"/search">) {
   const sp = (await props.searchParams) as Record<string, string | undefined>;
   const q = (sp.q ?? "").trim();
-  const r = search(q);
+  const r = await search(q);
   const none = !r.schools.length && !r.teams.length && !r.tournaments.length;
   return (
     <div>

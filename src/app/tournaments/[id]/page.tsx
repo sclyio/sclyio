@@ -9,14 +9,14 @@ export const dynamic = "force-dynamic";
 
 export async function generateMetadata(props: PageProps<"/tournaments/[id]">): Promise<Metadata> {
   const { id } = await props.params;
-  const d = tournamentDetail(decodeURIComponent(id));
+  const d = await tournamentDetail(decodeURIComponent(id));
   return { title: d ? String(d.t.name) : "Tournament" };
 }
 
 export default async function TournamentPage(props: PageProps<"/tournaments/[id]">) {
   const { id: raw } = await props.params;
   const id = decodeURIComponent(raw);
-  const d = tournamentDetail(id);
+  const d = await tournamentDetail(id);
   if (!d) notFound();
   const { t, source, events, entries, results, strength, k, penalties } = d;
   const res = new Map(results.map((r) => [`${r.entry_id}|${r.tournament_event_id}`, r]));

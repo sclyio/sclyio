@@ -29,7 +29,7 @@ export default async function RankingsPage(props: PageProps<"/rankings">) {
   const period = (["1w", "4w", "season"] as const).includes(one(sp.period) as Period) ? (one(sp.period) as Period) : "4w";
   const page = Math.max(1, Number(one(sp.page)) || 1);
 
-  const res = getRankings({
+  const res = await getRankings({
     division,
     view,
     season: Number(one(sp.season)) || undefined,
@@ -47,7 +47,7 @@ export default async function RankingsPage(props: PageProps<"/rankings">) {
     period,
   });
   const season = res.season;
-  const events = season ? officialEvents(division, season) : [];
+  const [events, stateList, levelList] = await Promise.all([season ? officialEvents(division, season) : Promise.resolve([]), states(), levels()]);
   const event = mode === "event" ? events.find((e) => e.id === one(sp.event)) ?? events[0] : undefined;
   const current = new URLSearchParams();
   for (const [k, v] of Object.entries(sp)) if (one(v)) current.set(k, one(v));
@@ -167,7 +167,7 @@ export default async function RankingsPage(props: PageProps<"/rankings">) {
         <Field label="State">
           <select name="state" defaultValue={one(sp.state)} className={selectCls}>
             <option value="">All states</option>
-            {states().map((s) => (
+            {stateList.map((s) => (
               <option key={s} value={s}>
                 {stateLabel(s)}
               </option>
@@ -177,7 +177,7 @@ export default async function RankingsPage(props: PageProps<"/rankings">) {
         <Field label="Competed at level">
           <select name="level" defaultValue={one(sp.level)} className={selectCls}>
             <option value="">Any level</option>
-            {levels().map((l) => (
+            {levelList.map((l) => (
               <option key={l} value={l}>
                 {l}
               </option>

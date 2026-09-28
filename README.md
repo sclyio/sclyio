@@ -36,6 +36,7 @@ npm run dev                       # http://localhost:3000
 | `npm run sync:all` | `sync` then `ratings:rebuild`. |
 | `npm run backtest` | Chronological backtest (v2 vs v1 Elo vs placement-logit baseline) → `backtest_results` table + `docs/backtest.md`. Optional `--sentienttree-dir <dir>` external comparison (see below). |
 | `npm run db:export -- --out dist-data/sclyio.db` | Compact, read-only deployment copy containing only the published build. |
+| `npm run publish:turso` | Upload the export to Turso as a new dataset, verify it, and atomically switch the site to it (skips if unchanged; `--force` to re-upload). |
 | `npm test` / `npm run typecheck` / `npm run lint` / `npm run build` | Vitest suite, `tsc`, ESLint, production build. |
 | `npm run dev` / `npm start` | Next.js dev / production server. |
 
@@ -53,7 +54,7 @@ src/lib/source     duosmium-parse.ts    src/lib/identity        src/lib/db      
 - **Provenance**: each file records repository path, blob SHA, commit revision, fetched-at, SHA-256, parser version, and Duosmium result URL. Content-hash changes are logged as corrections; a parser-version bump re-parses unchanged files.
 - **Idempotence**: stable ids (file stem, `tournament#teamNumber`, event slug) and per-tournament transactional replacement. Re-imports never duplicate records (tested).
 - **Recalculation**: each tournament's derived observations are hashed; any change (correction, identity mapping, override) records the earliest affected date. The rebuild recomputes only snapshots on/after it, copies earlier ones from the published build, and flips the published build pointer in one transaction. Visitors never see partial rankings. Fits that fail to converge block publication.
-- **Web requests are read-only**: the app opens SQLite with `readonly` + `query_only`. There are no mutation endpoints. Sync and rebuild are CLI jobs only.
+- **Web requests are read-only**: the app reads through `@libsql/client` (Turso in production, a local file in development). There are no mutation endpoints. Sync, rebuild, and publish are CLI jobs only.
 
 ## Identity rules (summary)
 
@@ -99,14 +100,39 @@ Validation = targets starting 2024-12-01 → 2026-01-31; test = 2026-02-01 onwar
 - `npm run typecheck`, `npm run lint`, `npm run build`: clean.
 - Browser flow (headless Edge): search → school → team → tournament → Duosmium source link (HTTP 200) → compare (2 series, head-to-head). Also checked: follow toggle persisted in localStorage, shared rankings URL restores all filters, filter changes update the URL, visible focus ring, no page errors. At 375 px no page scrolls horizontally; only the detailed tables scroll.
 
-## Deployment (not performed)
+## Deployment: Vercel + Turso
 
-The site only reads SQLite. Recommended options:
+The web app only reads. Data jobs run in GitHub Actions (or any trusted machine) and publish finished datasets to [Turso](https://turso.tech) (hosted libSQL/SQLite):
 
-1. **Single VPS or container host with a persistent disk** (e.g. Fly.io volume, Render disk, a small VM). Run `npm run build && npm start` and schedule `sync` + `ratings:rebuild` with cron (`ops/sync.cron.example`). This is the simplest option and supports incremental history.
-2. **Ephemeral/serverless hosting**: never deploy a writable SQLite file there. Run jobs in CI (`.github/workflows/sync.yml` keeps the DB in the Actions cache and uploads `db:export` output as an artifact). Ship the exported file read-only with the deployment and set `DATABASE_PATH`. The export is ≈665 MB, which exceeds some serverless bundle limits; prefer option 1 or a hosted libSQL (Turso) database, which Drizzle supports. Moving to Turso requires swapping the better-sqlite3 client.
+```
+GitHub Actions (daily)                      Turso                         Vercel
+sync → ratings:rebuild → test → db:export → new DB "sclyio-data-<time>-b<build>"
+                               → publish:turso: upload → verify → flip pointer in "sclyio-meta"  ← app reads pointer (60 s cache)
+```
 
-Before publishing: set `CORRECTIONS_URL` (otherwise `/data` offers a downloadable correction file), choose a host, and purchase the domain. None of these were done.
+- Each publish creates a new dataset database, uploads the exported file, verifies it, and only then updates the one-row pointer (`active_dataset`) in the meta database. Visitors never see a partial dataset, and a failed upload is deleted without touching the live site. The newest two datasets are kept; older ones are deleted. No Vercel redeploy is needed when data changes.
+- If the exported dataset matches the active one (same build id and build time), publishing is skipped, so quiet days don't re-upload ~665 MB.
+- Web reads use `@libsql/client` (`src/lib/db/read.ts`). The same code reads a local `file:` database in development. CLI jobs keep using better-sqlite3.
+
+### One-time setup
+
+1. Install the Turso CLI (macOS/Linux/WSL) and log in: `turso auth login`.
+2. Use your `default` group (plans below Scaler allow only one group). Its primary location should be near Vercel's default function region (iad1, Washington D.C.), e.g. `aws-us-east-1`; `turso group show default` shows it. On a plan with multiple groups: `turso group create sclyio --location aws-us-east-1`.
+3. Create a Platform API token for CI: `turso auth api-tokens mint sclyio-ci`, and note your org slug: `turso org list`.
+4. Create a read-only group token for the site: `turso group tokens create <group> --read-only`.
+5. Publish the first dataset from a machine that has run `npm run setup` (or run the workflow manually; the first CI run does a full import, ~10 min):
+   ```bash
+   npm run db:export
+   TURSO_API_TOKEN=… TURSO_ORG=… TURSO_GROUP=<group> npm run publish:turso
+   ```
+   This creates `sclyio-meta` on first run. Get its URL with `turso db show sclyio-meta --url`.
+6. Vercel → Project → Settings → Environment Variables (Production and Preview):
+   `TURSO_META_URL` = the meta URL, `TURSO_READ_TOKEN` = the read-only group token, optionally `CORRECTIONS_URL`. Redeploy once.
+7. GitHub → repository Settings → Secrets and variables → Actions: secrets `TURSO_API_TOKEN`, `TURSO_ORG`; variable `TURSO_GROUP` if not `default`. The scheduled workflow `sync-and-rebuild` then keeps the site current daily. Run it manually once to confirm.
+
+Storage: two ~665 MB datasets plus the meta database; check that your Turso plan's storage allowance covers ~1.5 GB.
+
+Alternative without Turso: a single VM/container with a persistent disk running `npm start` plus `ops/sync.cron.example`.
 
 ## Known limitations
 
@@ -117,7 +143,7 @@ Before publishing: set `CORRECTIONS_URL` (otherwise `/data` offers a downloadabl
 - Rating history is a reconstruction from today's archive; a publish log exists but past displayed values are not archived.
 - Division A and seasons before 2024–25 are not imported by default (backfill supported).
 - The 2026–27 season has no published results yet (as of 2026-09-27), so rankings default to 2025–26.
-- The database is large (≈1.1 GB live with two builds retained; ≈665 MB exported), mostly from weekly snapshots and long text keys.
+- The database is large (≈1.1 GB live with two builds retained; ≈665 MB exported), mostly from weekly snapshots and long text keys. Each publish uploads the full export.
 
 ## Attribution and licensing
 

@@ -5,7 +5,7 @@ import { RatingHistoryChart } from "@/components/charts";
 import { FollowButton } from "@/components/client-bits";
 import { Badge, Delta, EmptyState, Initials, Panel, Section, StatusBadge, btnGhostCls } from "@/components/ui";
 import { fmtDate, fmtUsr, ordinal, seasonLabel, stateLabel } from "@/lib/format";
-import { eventNames, officialEvents, sql } from "@/lib/queries/common";
+import { all, eventNames, kv, officialEvents } from "@/lib/queries/common";
 import {
   correctionsFor,
   detailSnapshotId,
@@ -21,35 +21,42 @@ export const dynamic = "force-dynamic";
 
 export async function generateMetadata(props: PageProps<"/teams/[id]">): Promise<Metadata> {
   const { id } = await props.params;
-  const t = teamSeason(decodeURIComponent(id));
+  const t = await teamSeason(decodeURIComponent(id));
   return { title: t ? `${t.schoolName} ${t.designation || "(unlabeled)"} · Div ${t.division} ${t.season}` : "Team" };
 }
 
 export default async function TeamPage(props: PageProps<"/teams/[id]">) {
   const { id: raw } = await props.params;
   const id = decodeURIComponent(raw);
-  const t = teamSeason(id);
+  const t = await teamSeason(id);
   if (!t) notFound();
   const division = t.division!;
   const season = t.season!;
-  const hist = history("team", id, division, season);
+  const hist = await history("team", id, division, season);
   const rated = hist.filter((h) => h.usr !== null);
   const latest = rated.length ? rated[rated.length - 1] : null;
   const lastSnapshot = hist.length ? hist[hist.length - 1] : null;
-  const apps = teamAppearances(id, hist);
   const detailId = detailSnapshotId(hist);
   const detailAsOf = hist.find((h) => h.snapshotId === detailId)?.asOf ?? null;
-  const breakdown = eventBreakdown("team", id, division, season, detailId);
-  const M = officialEvents(division, season).length;
-  const names = eventNames();
+  const [apps, breakdown, official, names, siblings, otherSeasons, sourceRevision] = await Promise.all([
+    teamAppearances(id, hist),
+    eventBreakdown("team", id, division, season, detailId),
+    officialEvents(division, season),
+    eventNames(),
+    all<{ id: string; d: string }>(
+      `SELECT id, display_designation AS d FROM team_seasons WHERE school_id = ? AND division = ? AND season = ? AND id <> ? ORDER BY designation`,
+      [t.schoolId, division, season, id],
+    ),
+    all<{ id: string; season: number; d: string }>(
+      `SELECT id, season, display_designation AS d FROM team_seasons
+       WHERE school_id = ? AND division = ? AND season <> ? AND designation = (SELECT designation FROM team_seasons WHERE id = ?) ORDER BY season DESC`,
+      [t.schoolId, division, season, id],
+    ),
+    kv("source_revision"),
+  ]);
+  const M = official.length;
   const tournamentNames = new Map(apps.map((a) => [a.tournamentId, a.tournamentName]));
-  const corrections = correctionsFor(apps.map((a) => a.tournamentId));
-  const siblings = sql()
-    .prepare(`SELECT id, display_designation AS d FROM team_seasons WHERE school_id=? AND division=? AND season=? AND id<>? ORDER BY designation`)
-    .all(t.schoolId, division, season, id) as { id: string; d: string }[];
-  const otherSeasons = sql()
-    .prepare(`SELECT id, season, display_designation AS d FROM team_seasons WHERE school_id=? AND division=? AND season<>? AND designation=(SELECT designation FROM team_seasons WHERE id=?) ORDER BY season DESC`)
-    .all(t.schoolId, division, season, id) as { id: string; season: number; d: string }[];
+  const corrections = await correctionsFor(apps.map((a) => a.tournamentId));
   const label = t.designation ? t.designation : "Unlabeled team";
   const chartData = hist.map((h) => ({
     asOf: h.asOf,
@@ -153,7 +160,7 @@ export default async function TeamPage(props: PageProps<"/teams/[id]">) {
         description={
           <>
             Weekly model refits (each Sunday) for this season, reconstructed from the current archive (source revision{" "}
-            <span className="num">{String(sql().prepare(`SELECT value FROM kv WHERE key='source_revision'`).pluck().get()).slice(0, 7)}</span>). This is
+            <span className="num">{(sourceRevision ?? "unknown").slice(0, 7)}</span>). This is
             not a record of what was displayed at the time. Blue guides mark refits that include a new result by this team. No rating is shown
             before the team&apos;s first eligible result; nothing is interpolated.
           </>

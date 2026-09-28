@@ -8,11 +8,11 @@ import { getRankings } from "@/lib/queries/rankings";
 
 export const dynamic = "force-dynamic";
 
-export default function Home() {
-  const cov = coverage();
-  const previews = (["C", "B"] as const).map((division) => ({
+export default async function Home() {
+  const cov = await coverage();
+  const previews = await Promise.all((["C", "B"] as const).map(async (division) => ({
     division,
-    res: getRankings({
+    res: await getRankings({
       division,
       view: "team",
       mode: "overall",
@@ -23,9 +23,8 @@ export default function Home() {
       onePerSchool: false,
       period: "4w",
     }),
-  }));
-  const recent = recentTournaments(8);
-  const historical = recentlyAddedHistorical(6);
+  })));
+  const [recent, historical] = await Promise.all([recentTournaments(8), recentlyAddedHistorical(6)]);
   const totalT = cov.bySeason.reduce((a, b) => a + b.tournaments, 0);
 
   return (

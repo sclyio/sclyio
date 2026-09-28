@@ -1,6 +1,6 @@
 import "server-only";
 import type { RatingView } from "../rating/config";
-import { buildId, entityLabel, normQuery, officialEvents, snapshotsFor, sql, type EntityLabel } from "./common";
+import { all, buildId, entityLabel, normQuery, officialEvents, snapshotsFor, type EntityLabel } from "./common";
 import { history, type HistoryPoint } from "./profiles";
 
 export interface CompareEntity {
@@ -17,63 +17,78 @@ export interface Standing {
   field: number;
 }
 
-export function compareData(view: RatingView, division: string, season: number, ids: string[]) {
+type StandingRow = { id: string; name: string; end_date: string; rank: number | null; field: number };
+type EventRatingRow = { event_def_id: string; usr: number; evidence: string; component: number; appearances: number; event_rank: number | null };
+
+export async function compareData(view: RatingView, division: string, season: number, ids: string[]) {
   const errors: string[] = [];
   const entities: CompareEntity[] = [];
-  for (const id of ids.slice(0, 4)) {
-    const label = entityLabel(view, id);
+  const labels = await Promise.all(ids.slice(0, 4).map((id) => entityLabel(view, id)));
+  const accepted: { id: string; label: NonNullable<(typeof labels)[number]> }[] = [];
+  ids.slice(0, 4).forEach((id, i) => {
+    const label = labels[i];
     if (!label) {
       errors.push(`“${id}” was not found in the ${view === "team" ? "Team Performance" : "School Potential"} pool.`);
-      continue;
-    }
-    if (view === "team" && (label.division !== division || label.season !== season)) {
+    } else if (view === "team" && (label.division !== division || label.season !== season)) {
       errors.push(
         `${label.schoolName} ${label.designation || "(unlabeled)"} is a Division ${label.division} ${label.season} team; it cannot be compared in the Division ${division} ${season} pool.`,
       );
-      continue;
+    } else {
+      accepted.push({ id, label });
     }
-    const hist = history(view, id, division, season);
-    const rated = hist.filter((h) => h.usr !== null);
-    entities.push({ label, hist, latest: rated.length ? rated[rated.length - 1] : null });
-  }
-  const snaps = snapshotsFor(division, view, season);
+  });
+  const [snaps, events, hists] = await Promise.all([
+    snapshotsFor(division, view, season),
+    officialEvents(division, season),
+    Promise.all(accepted.map((a) => history(view, a.id, division, season))),
+  ]);
+  accepted.forEach((a, i) => {
+    const rated = hists[i].filter((h) => h.usr !== null);
+    entities.push({ label: a.label, hist: hists[i], latest: rated.length ? rated[rated.length - 1] : null });
+  });
   const detail = [...snaps].reverse().find((s) => s.has_event_detail) ?? null;
-  const events = officialEvents(division, season);
-  const eventRatings = new Map<string, Map<string, { usr: number; evidence: string; component: number; appearances: number; rank: number | null }>>();
-  if (detail) {
-    const q = sql().prepare(`SELECT event_def_id, usr, evidence, component, appearances, event_rank FROM event_ratings WHERE snapshot_id=? AND entity_id=?`);
-    for (const e of entities) {
-      eventRatings.set(
-        e.label.id,
-        new Map(
-          (q.all(detail.id, e.label.id) as { event_def_id: string; usr: number; evidence: string; component: number; appearances: number; event_rank: number | null }[]).map(
-            (r) => [r.event_def_id, { usr: r.usr, evidence: r.evidence, component: r.component, appearances: r.appearances, rank: r.event_rank }],
-          ),
-        ),
-      );
-    }
-  }
 
-  // Actual placements at tournaments in this pool's season.
+  // Per-entity event ratings, actual placements, and model observations, fetched in parallel.
+  const perEntity = await Promise.all(
+    entities.map((e) =>
+      Promise.all([
+        detail
+          ? all<EventRatingRow>(
+              `SELECT event_def_id, usr, evidence, component, appearances, event_rank FROM event_ratings WHERE snapshot_id = ? AND entity_id = ?`,
+              [detail.id, e.label.id],
+            )
+          : Promise.resolve([] as EventRatingRow[]),
+        view === "team"
+          ? all<StandingRow>(
+              `SELECT t.id, t.name, t.end_date, e.rank, (SELECT COUNT(*) FROM entries x WHERE x.tournament_id = t.id AND x.exhibition = 0) AS field
+               FROM entries e JOIN tournaments t ON t.id = e.tournament_id WHERE e.team_season_id = ? AND e.exhibition = 0`,
+              [e.label.id],
+            )
+          : all<StandingRow>(
+              `SELECT t.id, t.name, t.end_date, MIN(e.rank) AS rank, (SELECT COUNT(*) FROM entries x WHERE x.tournament_id = t.id AND x.exhibition = 0) AS field
+               FROM entries e JOIN tournaments t ON t.id = e.tournament_id
+               WHERE e.school_id = ? AND t.division = ? AND t.season = ? AND e.exhibition = 0 GROUP BY t.id`,
+              [e.label.id, division, season],
+            ),
+        all<{ tournament_event_id: string; model_rank: number }>(
+          `SELECT tournament_event_id, model_rank FROM observations WHERE view = ? AND entity_id = ? AND division = ?`,
+          [view, e.label.id, division],
+        ),
+      ]),
+    ),
+  );
+  const eventRatings = new Map<string, Map<string, { usr: number; evidence: string; component: number; appearances: number; rank: number | null }>>();
   const standings = new Map<string, Map<string, Standing>>();
-  const qTeam = sql().prepare(
-    `SELECT t.id, t.name, t.end_date, e.rank, (SELECT COUNT(*) FROM entries x WHERE x.tournament_id=t.id AND x.exhibition=0) AS field
-     FROM entries e JOIN tournaments t ON t.id=e.tournament_id WHERE e.team_season_id=? AND e.exhibition=0`,
-  );
-  const qSchool = sql().prepare(
-    `SELECT t.id, t.name, t.end_date, MIN(e.rank) AS rank, (SELECT COUNT(*) FROM entries x WHERE x.tournament_id=t.id AND x.exhibition=0) AS field
-     FROM entries e JOIN tournaments t ON t.id=e.tournament_id WHERE e.school_id=? AND t.division=? AND t.season=? AND e.exhibition=0 GROUP BY t.id`,
-  );
-  for (const e of entities) {
-    const rows = (view === "team" ? qTeam.all(e.label.id) : qSchool.all(e.label.id, division, season)) as {
-      id: string;
-      name: string;
-      end_date: string;
-      rank: number | null;
-      field: number;
-    }[];
-    standings.set(e.label.id, new Map(rows.map((r) => [r.id, { tournamentId: r.id, name: r.name, endDate: r.end_date, rank: r.rank, field: r.field }])));
-  }
+  const obs = new Map<string, Map<string, number>>();
+  entities.forEach((e, i) => {
+    const [er, st, ob] = perEntity[i];
+    eventRatings.set(
+      e.label.id,
+      new Map(er.map((r) => [r.event_def_id, { usr: r.usr, evidence: r.evidence, component: r.component, appearances: r.appearances, rank: r.event_rank }])),
+    );
+    standings.set(e.label.id, new Map(st.map((r) => [r.id, { tournamentId: r.id, name: r.name, endDate: r.end_date, rank: r.rank, field: r.field }])));
+    obs.set(e.label.id, new Map(ob.map((o) => [o.tournament_event_id, o.model_rank])));
+  });
   const allT = new Map<string, { name: string; endDate: string; count: number }>();
   for (const m of standings.values()) {
     for (const s of m.values()) {
@@ -88,14 +103,6 @@ export function compareData(view: RatingView, division: string, season: number, 
     .map(([id, v]) => ({ id, ...v }));
 
   // Pairwise head-to-head: overall placements and event-level model ranks.
-  const obs = new Map<string, Map<string, number>>();
-  const qObs = sql().prepare(`SELECT tournament_event_id, model_rank FROM observations WHERE view=? AND entity_id=? AND division=?`);
-  for (const e of entities) {
-    obs.set(
-      e.label.id,
-      new Map((qObs.all(view, e.label.id, division) as { tournament_event_id: string; model_rank: number }[]).map((o) => [o.tournament_event_id, o.model_rank])),
-    );
-  }
   const pairs: { a: string; b: string; overall: [number, number, number]; events: [number, number, number] }[] = [];
   for (let i = 0; i < entities.length; i++) {
     for (let j = i + 1; j < entities.length; j++) {
@@ -123,25 +130,22 @@ export function compareData(view: RatingView, division: string, season: number, 
   return { entities, errors, snaps, detail, events, eventRatings, standings, common, pairs };
 }
 
-export function compareCandidates(view: RatingView, division: string, season: number, q: string) {
+export async function compareCandidates(view: RatingView, division: string, season: number, q: string) {
   const nq = normQuery(q);
   if (nq.length < 2) return [];
   const like = `%${nq.replace(/ /g, "%")}%`;
-  const build = buildId();
   if (view === "team") {
-    return sql()
-      .prepare(
-        `SELECT ts.id, sc.name, ts.display_designation AS designation, sc.state FROM team_seasons ts JOIN schools sc ON sc.id=ts.school_id
-         WHERE ts.division=? AND ts.season=? AND sc.search_text LIKE ? ORDER BY sc.name, ts.designation LIMIT 20`,
-      )
-      .all(division, season, like) as { id: string; name: string; designation: string; state: string }[];
+    return all<{ id: string; name: string; designation: string; state: string }>(
+      `SELECT ts.id, sc.name, ts.display_designation AS designation, sc.state FROM team_seasons ts JOIN schools sc ON sc.id = ts.school_id
+       WHERE ts.division = ? AND ts.season = ? AND sc.search_text LIKE ? ORDER BY sc.name, ts.designation LIMIT 20`,
+      [division, season, like],
+    );
   }
-  return sql()
-    .prepare(
-      `SELECT DISTINCT sc.id, sc.name, NULL AS designation, sc.state FROM schools sc
-       JOIN snapshots s ON s.build_id=? AND s.division=? AND s.view='school' AND s.season=?
-       JOIN overall_ratings o ON o.snapshot_id=s.id AND o.entity_id=sc.id
-       WHERE sc.search_text LIKE ? ORDER BY sc.name LIMIT 20`,
-    )
-    .all(build, division, season, like) as { id: string; name: string; designation: string | null; state: string }[];
+  return all<{ id: string; name: string; designation: string | null; state: string }>(
+    `SELECT DISTINCT sc.id, sc.name, NULL AS designation, sc.state FROM schools sc
+     JOIN snapshots s ON s.build_id = ? AND s.division = ? AND s.view = 'school' AND s.season = ?
+     JOIN overall_ratings o ON o.snapshot_id = s.id AND o.entity_id = sc.id
+     WHERE sc.search_text LIKE ? ORDER BY sc.name LIMIT 20`,
+    [await buildId(), division, season, like],
+  );
 }

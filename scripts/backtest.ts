@@ -11,9 +11,17 @@ import { compareWithReference } from "./sentienttree-compare";
  *
  *   npm run backtest
  *   npm run backtest -- --sentienttree-dir ../cache/st   # optional external comparison
+ *   npm run backtest -- --if-missing                     # only when no results are stored
  */
 const a = args();
 const db = openDb();
+if (a["if-missing"]) {
+  const n = (db.$client.prepare(`SELECT COUNT(*) AS c FROM backtest_results`).get() as { c: number }).c;
+  if (n > 0) {
+    log(`backtest results already present (${n} metrics); skipping (--if-missing)`);
+    process.exit(0);
+  }
+}
 const t0 = Date.now();
 const rows: MetricRow[] = runBacktest(db, { log });
 const external = a["sentienttree-dir"] ? compareWithReference(db, String(a["sentienttree-dir"]), log) : [];

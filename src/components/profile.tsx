@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Badge, EvidenceBadge } from "@/components/ui";
 import { fmtDate, fmtUsr, STATUS_TEXT } from "@/lib/format";
-import type { eventBreakdown, HistoryPoint } from "@/lib/queries/profiles";
+import type { EventBreakdownRow, HistoryPoint } from "@/lib/queries/profiles";
 
 export function HistoryTable({ hist, tournamentNames }: { hist: HistoryPoint[]; tournamentNames: Map<string, string> }) {
   return (
@@ -32,7 +32,7 @@ export function HistoryTable({ hist, tournamentNames }: { hist: HistoryPoint[]; 
   );
 }
 
-export function EventBreakdown({ rows }: { rows: ReturnType<typeof eventBreakdown> }) {
+export function EventBreakdown({ rows }: { rows: EventBreakdownRow[] }) {
   return (
     <div className="grid gap-2">
       {rows.map((ev) => (

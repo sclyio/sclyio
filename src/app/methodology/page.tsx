@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { Panel, Section } from "@/components/ui";
-import { dataQuality } from "@/lib/queries/coverage";
+import { backtestResults, type BacktestRow } from "@/lib/queries/coverage";
 import { DEFAULT_PARAMS, MODEL_VERSION } from "@/lib/rating/config";
 import { placementLogit, toUsr } from "@/lib/rating/math";
 import { fitEventPool, observationWeight, type PoolObservation } from "@/lib/rating/model";
@@ -38,13 +38,13 @@ function workedExample() {
   return { asOf, t, obs, rawW, mean, fit };
 }
 
-export default function MethodologyPage() {
+export default async function MethodologyPage() {
   const ex = workedExample();
-  let backtest: ReturnType<typeof dataQuality>["backtest"] = [];
+  let backtest: BacktestRow[] = [];
   try {
-    backtest = dataQuality().backtest;
+    backtest = await backtestResults();
   } catch {
-    backtest = [];
+    backtest = []; // methodology stays readable without a database
   }
   const bt = (div: string, view: string, split: string, model: string, metric: string) =>
     backtest.find((b) => b.division === div && b.view === view && b.split === split && b.model === model && b.metric === metric)?.value;

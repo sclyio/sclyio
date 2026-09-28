@@ -14,14 +14,14 @@ const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) 
 export default async function TeamsPage(props: PageProps<"/teams">) {
   const sp = (await props.searchParams) as Record<string, string | string[] | undefined>;
   const page = Math.max(1, Number(one(sp.page)) || 1);
-  const { total, rows } = teamDirectory({
+  const { total, rows } = await teamDirectory({
     q: one(sp.q) || undefined,
     division: one(sp.div) || undefined,
     season: Number(one(sp.season)) || undefined,
     state: one(sp.state) || undefined,
     page,
   });
-  const seasons = tournamentFilters().seasons;
+  const [{ seasons }, stateList] = await Promise.all([tournamentFilters(), states()]);
   const qs = Object.fromEntries(Object.entries(sp).filter(([k, v]) => k !== "page" && one(v)).map(([k, v]) => [k, one(v)]));
   const lbl = "grid gap-1 text-xs font-medium text-ink-3";
   return (
@@ -62,7 +62,7 @@ export default async function TeamsPage(props: PageProps<"/teams">) {
           State
           <select name="state" defaultValue={one(sp.state)} className={selectCls}>
             <option value="">All states</option>
-            {states().map((s) => (
+            {stateList.map((s) => (
               <option key={s} value={s}>
                 {stateLabel(s)}
               </option>

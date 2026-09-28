@@ -9,9 +9,8 @@ import { PARSER_VERSION } from "@/lib/rating/config";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Data coverage" };
 
-export default function DataPage() {
-  const cov = coverage();
-  const dq = dataQuality();
+export default async function DataPage() {
+  const [cov, dq] = await Promise.all([coverage(), dataQuality()]);
   const params = JSON.parse(String(dq.build.params)) as Record<string, number | string>;
   const files = Object.fromEntries(cov.files.map((f) => [f.status, f.c]));
   const correctionsUrl = process.env.CORRECTIONS_URL;
