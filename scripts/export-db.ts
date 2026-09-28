@@ -41,6 +41,8 @@ const counts = db
 db.prepare(`INSERT INTO kv (key, value) VALUES ('site_counts', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(
   JSON.stringify(counts),
 );
+// Model inputs (observations) are only needed by the rating jobs, not the site.
+db.prepare(`DELETE FROM observations`).run();
 db.pragma("journal_mode = DELETE");
 db.exec("VACUUM");
 db.close();

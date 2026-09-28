@@ -20,8 +20,8 @@ export interface ImportOptions {
   adapter: SourceAdapter;
   mappings: Mappings;
   mode: "full" | "incremental";
-  /** Explicit seasons, or "auto" = two most recent completed + current if present. */
-  seasons: number[] | "auto";
+  /** Explicit seasons, "all" (every season in the source), or "auto" = two most recent completed + current if present. */
+  seasons: number[] | "auto" | "all";
   divisions: string[];
   concurrency: number;
   /** Today's date (ISO) — injectable for tests. */
@@ -46,7 +46,8 @@ export interface ImportSummary {
   identity: { unresolvedEntries: number; schools: number; teamSeasons: number };
 }
 
-export function chooseSeasons(ids: string[], today: string, requested: number[] | "auto"): number[] {
+export function chooseSeasons(ids: string[], today: string, requested: number[] | "auto" | "all"): number[] {
+  if (requested === "all") return [...new Set(ids.map((id) => seasonForDate(fileDate(id))))].sort();
   if (requested !== "auto") return [...requested].sort();
   const current = seasonForDate(today);
   const present = new Set(ids.map((id) => seasonForDate(fileDate(id))));

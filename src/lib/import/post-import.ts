@@ -174,7 +174,9 @@ export function postImport(db: DB, mappings: Mappings, preliminary: Set<string>,
     ratingEligible: number;
     obsHash: string | null;
   }[];
-  const qEvents = s.prepare(`SELECT id, event_def_id AS eventDefId, model_eligible AS modelEligible FROM tournament_events WHERE tournament_id=?`);
+  const qEvents = s.prepare(
+    `SELECT id, event_def_id AS eventDefId, model_eligible AS modelEligible, (trial OR trialed) AS trial FROM tournament_events WHERE tournament_id=?`,
+  );
   const qEntries = s.prepare(
     `SELECT id, school_id AS schoolId, team_season_id AS teamSeasonId, exhibition, disqualified, withdrawn, number FROM entries WHERE tournament_id=?`,
   );
@@ -190,8 +192,8 @@ export function postImport(db: DB, mappings: Mappings, preliminary: Set<string>,
   const setHash = s.prepare(`UPDATE tournaments SET obs_hash=? WHERE id=?`);
   const changed: { id: string; hash: string; rows: ReturnType<typeof deriveObservations> }[] = [];
   for (const t of tournaments) {
-    const events = (qEvents.all(t.id) as { id: string; eventDefId: string; modelEligible: number }[]).map(
-      (e): ObsEvent => ({ id: e.id, eventDefId: e.eventDefId, modelEligible: Boolean(e.modelEligible) }),
+    const events = (qEvents.all(t.id) as { id: string; eventDefId: string; modelEligible: number; trial: number }[]).map(
+      (e): ObsEvent => ({ id: e.id, eventDefId: e.eventDefId, modelEligible: Boolean(e.modelEligible), trial: Boolean(e.trial) }),
     );
     const entries = (qEntries.all(t.id) as Record<string, unknown>[]).map(
       (e): ObsEntry => ({

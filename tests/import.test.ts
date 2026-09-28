@@ -147,15 +147,49 @@ describe("import pipeline (synthetic fixtures)", () => {
       "SELECT status, place FROM event_results WHERE entry_id LIKE '%#4' AND tournament_event_id LIKE '%:anatomy-and-physiology'",
     );
     expect(po.status).toBe("participation_only");
-    // Codebusters model field excludes the no-show and DQ: n = 2.
-    const cb = q<{ n: number; model_rank: number }>(
+    // Non-participation is penalized in non-trial events: the no-show ranks
+    // below every placed team and the DQ below the no-show (official order).
+    const cb = q<{ n: number; model_rank: number; entity_id: string }>(
       db,
-      "SELECT n, model_rank FROM observations WHERE view='team' AND tournament_event_id LIKE '%:codebusters' ORDER BY model_rank",
+      "SELECT n, model_rank, entity_id FROM observations WHERE view='team' AND tournament_event_id LIKE '%:codebusters' ORDER BY model_rank",
     );
+    expect(cb.map((r) => r.n)).toEqual([4, 4, 4, 4]);
+    expect(cb.map((r) => r.model_rank)).toEqual([1, 2, 3, 4]);
+    expect(cb[2].entity_id).toMatch(/birch-hollow/); // team 2: no-show
+    expect(cb[3].entity_id).toMatch(/cedar-point/); // team 3: disqualified
+    // Participation-only also ranks last in its event.
+    const an = q<{ n: number; model_rank: number; entity_id: string }>(
+      db,
+      "SELECT n, model_rank, entity_id FROM observations WHERE view='team' AND tournament_event_id LIKE '%:anatomy-and-physiology' ORDER BY model_rank",
+    );
+    expect(an.map((r) => r.n)).toEqual([4, 4, 4, 4]);
+    expect(an[3].entity_id).toMatch(/dogwood/);
+  });
+
+  it("does not penalize non-participation in trial events", async () => {
+    const src = new SyntheticSource({}, OFFICIAL);
+    const events = [{ name: "Anatomy and Physiology" }, { name: "Codebusters", trial: true }, { name: "Circuit Lab" }];
+    const placings = straightPlacings([1, 2, 3], ["Anatomy and Physiology", "Circuit Lab"]).concat([
+      { team: 1, event: "Codebusters", place: 1 },
+      { team: 2, event: "Codebusters", place: 2 },
+      { team: 3, event: "Codebusters", participated: false },
+    ]);
+    src.write(
+      "2026-01-10_alder_ridge_invitational_c",
+      baseTournament({
+        events,
+        teams: [
+          { number: 1, school: "Alder Ridge High School" },
+          { number: 2, school: "Birch Hollow High School" },
+          { number: 3, school: "Cedar Point Academy" },
+        ],
+        placings,
+      }),
+    );
+    const db = tempDb();
+    await importAll(db, src);
+    const cb = q<{ n: number }>(db, "SELECT n FROM observations WHERE view='team' AND tournament_event_id LIKE '%:codebusters'");
     expect(cb.map((r) => r.n)).toEqual([2, 2]);
-    // Event-specific field counts: anatomy has 3 eligible participants.
-    const an = q<{ n: number }>(db, "SELECT DISTINCT n FROM observations WHERE view='team' AND tournament_event_id LIKE '%:anatomy-and-physiology'");
-    expect(an).toEqual([{ n: 3 }]);
   });
 
   it("uses midranks for official ties after exclusions and preserves the tie flag", async () => {

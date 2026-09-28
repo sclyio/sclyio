@@ -21,6 +21,8 @@ export interface ObsEvent {
   id: string;
   eventDefId: string;
   modelEligible: boolean;
+  /** Held as a trial (or trialed): non-participants are not penalized. */
+  trial?: boolean;
 }
 
 export interface ObsEntry {
@@ -60,14 +62,28 @@ export interface ObservationRow {
   format: string;
 }
 
+/**
+ * Non-participation penalty (official scoring order): in a non-trial event,
+ * participation-only ranks below every placed team, then no-shows, then
+ * disqualifications. Entries with the same status share a midrank.
+ */
+const PENALIZED: Record<string, number> = { participation_only: 1, no_show: 2, disqualified: 3 };
+
 /** Why a single official result is not a model observation (null = eligible). */
-export function resultIneligibility(entry: ObsEntry, r: ObsResult): string | null {
+export function resultIneligibility(entry: ObsEntry, r: ObsResult, trialEvent = false): string | null {
   if (entry.withdrawn) return "withdrawn";
   if (entry.exhibition) return "exhibition entry";
   if (entry.disqualified) return "team disqualified";
-  if (r.status !== "placed" || r.place === null) return r.status.replace("_", " ");
   if (r.exempt) return "exempt placing";
-  return null;
+  if (r.status === "placed" && r.place !== null) return null;
+  if (!trialEvent && PENALIZED[r.status]) return null; // ranked last (penalty)
+  return r.status.replace("_", " ");
+}
+
+/** Model ordering key: official place, or below the whole field for penalties. */
+function orderKey(r: ObsResult, maxPlace: number): number {
+  if (r.status === "placed" && r.place !== null) return r.place;
+  return maxPlace + PENALIZED[r.status];
 }
 
 export function deriveObservations(
@@ -89,8 +105,13 @@ export function deriveObservations(
     if (!ev.modelEligible) continue;
     const eligible = (byEvent.get(ev.id) ?? []).filter((r) => {
       const e = entryById.get(r.entryId);
-      return e && resultIneligibility(e, r) === null;
+      return e && resultIneligibility(e, r, Boolean(ev.trial)) === null;
     });
+    // Require at least one real placing; a field of only penalties is not a contest.
+    const placed = eligible.filter((r) => r.status === "placed" && r.place !== null);
+    if (!placed.length) continue;
+    const maxPlace = Math.max(...placed.map((r) => r.place!));
+    const key = (r: ObsResult) => orderKey(r, maxPlace);
     const nSchools = new Set(eligible.map((r) => entryById.get(r.entryId)!.schoolId)).size;
     const base = {
       tournamentEventId: ev.id,
@@ -108,7 +129,7 @@ export function deriveObservations(
     // competitors but produce no observation).
     const n = eligible.length;
     if (n >= 2) {
-      const ranks = midranks(eligible, (r) => r.place!);
+      const ranks = midranks(eligible, key);
       for (const r of eligible) {
         const e = entryById.get(r.entryId)!;
         if (!e.teamSeasonId) continue;
@@ -118,7 +139,7 @@ export function deriveObservations(
           view: "team",
           entityId: e.teamSeasonId,
           sourceEntryId: e.id,
-          sourcePlace: r.place!,
+          sourcePlace: r.place ?? 0,
           modelRank: rank,
           n,
           x: placementLogit(rank, n),
@@ -132,18 +153,14 @@ export function deriveObservations(
     for (const r of eligible) {
       const e = entryById.get(r.entryId)!;
       const cur = best.get(e.schoolId);
-      if (
-        !cur ||
-        r.place! < cur.place! ||
-        (r.place === cur.place && e.number < entryById.get(cur.entryId)!.number)
-      ) {
+      if (!cur || key(r) < key(cur) || (key(r) === key(cur) && e.number < entryById.get(cur.entryId)!.number)) {
         best.set(e.schoolId, r);
       }
     }
     const schoolRows = [...best.entries()];
     const ns = schoolRows.length;
     if (ns >= 2) {
-      const ranks = midranks(schoolRows, ([, r]) => r.place!);
+      const ranks = midranks(schoolRows, ([, r]) => key(r));
       for (const row of schoolRows) {
         const [schoolId, r] = row;
         const rank = ranks.get(row)!;
@@ -152,7 +169,7 @@ export function deriveObservations(
           view: "school",
           entityId: schoolId,
           sourceEntryId: r.entryId,
-          sourcePlace: r.place!,
+          sourcePlace: r.place ?? 0,
           modelRank: rank,
           n: ns,
           x: placementLogit(rank, ns),

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { Avatar, Change, RatingBadge, Tabs, teamLabel, usr } from "@/components/plain";
+import { RatingChart } from "@/components/rating-chart";
 import { STATUS_TEXT } from "@/lib/format";
 import { officialEvents } from "@/lib/queries/common";
 import { detailSnapshotId, eventBreakdown, history, teamAppearances, teamSeason } from "@/lib/queries/profiles";
@@ -151,6 +152,17 @@ export default async function TeamPage(props: PageProps<"/teams/[id]">) {
           </table>
         </section>
       ) : (
+        <>
+        <section className="card">
+          <h2>
+            {season - 1}-{String(season).slice(2)} season
+          </h2>
+          <RatingChart
+            season={season}
+            label={`${t.schoolName} ${teamLabel(t.designation)}`.trim()}
+            points={rated.map((h) => ({ date: h.asOf, usr: h.usr!, newResults: Boolean(h.explain?.t?.length) }))}
+          />
+        </section>
         <section className="card flush scroll">
           <table>
             <thead>
@@ -178,6 +190,7 @@ export default async function TeamPage(props: PageProps<"/teams/[id]">) {
             </tbody>
           </table>
         </section>
+        </>
       )}
     </>
   );

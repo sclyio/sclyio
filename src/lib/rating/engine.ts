@@ -38,19 +38,25 @@ export function sundayOnOrAfter(iso: string): string {
   return addDays(iso, add);
 }
 
-export function snapshotDates(endDates: string[]): string[] {
+export function snapshotDates(endDates: string[], stepWeeks = 1): string[] {
   if (!endDates.length) return [];
   const sorted = [...endDates].sort();
   const first = sundayOnOrAfter(sorted[0]);
   const last = sundayOnOrAfter(sorted[sorted.length - 1]);
   const out: string[] = [];
-  for (let d = first; d <= last; d = addDays(d, 7)) out.push(d);
+  for (let d = first; d <= last; d = addDays(d, 7 * stepWeeks)) out.push(d);
+  if (out[out.length - 1] !== last) out.push(last); // always include the season-final refit
   return out;
 }
+
+/** Seasons older than the two most recent are refit every 4 weeks (plus the final refit). */
+export const RECENT_SEASONS_WEEKLY = 2;
 
 interface PoolSpec {
   division: string;
   season: number;
+  /** Recent seasons store monthly event detail; older ones only the final refit. */
+  recent?: boolean;
   officialDefs: string[];
   poolDefs: Map<string, string[]>;
   dates: string[];
@@ -153,7 +159,7 @@ export function rebuildRatings(opts: RebuildOptions) {
             const month = Number(asOf.slice(5, 7));
             const isFinal = di === pool.dates.length - 1;
             const isMonthEnd = !nextDate || nextDate.slice(5, 7) !== asOf.slice(5, 7);
-            const detail = isFinal || (isMonthEnd && detailMonths.has(month));
+            const detail = isFinal || (pool.recent !== false && isMonthEnd && detailMonths.has(month));
             writeSnapshot({
               snap,
               prev,
@@ -228,6 +234,8 @@ export function planPools(db: DB): PoolSpec[] {
     .prepare(`SELECT DISTINCT division, season FROM tournaments WHERE rating_eligible=1 ORDER BY division, season`)
     .all() as { division: string; season: number }[];
   const out: PoolSpec[] = [];
+  const latest = new Map<string, number>();
+  for (const { division, season } of seasons) latest.set(division, Math.max(latest.get(division) ?? 0, season));
   for (const { division, season } of seasons) {
     if (!meta.some((m) => m.division === division && m.season === season)) continue;
     const defs = s
@@ -247,7 +255,8 @@ export function planPools(db: DB): PoolSpec[] {
         end_date: string;
       }[]
     ).map((r) => r.end_date);
-    out.push({ division, season, officialDefs: defs.map((d) => d.id), poolDefs, dates: snapshotDates(ends) });
+    const step = season > (latest.get(division) ?? season) - RECENT_SEASONS_WEEKLY ? 1 : 4;
+    out.push({ division, season, officialDefs: defs.map((d) => d.id), poolDefs, dates: snapshotDates(ends, step), recent: step === 1 });
   }
   return out;
 }

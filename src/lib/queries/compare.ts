@@ -70,10 +70,22 @@ export async function compareData(view: RatingView, division: string, season: nu
                WHERE e.school_id = ? AND t.division = ? AND t.season = ? AND e.exhibition = 0 GROUP BY t.id`,
               [e.label.id, division, season],
             ),
-        all<{ tournament_event_id: string; model_rank: number }>(
-          `SELECT tournament_event_id, model_rank FROM observations WHERE view = ? AND entity_id = ? AND division = ?`,
-          [view, e.label.id, division],
-        ),
+        // Event head-to-head uses official event places (best entry per school in the school view).
+        view === "team"
+          ? all<{ tournament_event_id: string; model_rank: number }>(
+              `SELECT r.tournament_event_id, r.place AS model_rank
+               FROM entries e JOIN event_results r ON r.tournament_id = e.tournament_id AND r.entry_id = e.id
+               WHERE e.team_season_id = ? AND r.status = 'placed' AND e.exhibition = 0`,
+              [e.label.id],
+            )
+          : all<{ tournament_event_id: string; model_rank: number }>(
+              `SELECT r.tournament_event_id, MIN(r.place) AS model_rank
+               FROM entries e JOIN tournaments t ON t.id = e.tournament_id
+               JOIN event_results r ON r.tournament_id = e.tournament_id AND r.entry_id = e.id
+               WHERE e.school_id = ? AND t.division = ? AND t.season = ? AND r.status = 'placed' AND e.exhibition = 0
+               GROUP BY r.tournament_event_id`,
+              [e.label.id, division, season],
+            ),
       ]),
     ),
   );

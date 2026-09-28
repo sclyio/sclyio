@@ -11,8 +11,10 @@
  * docs/backtest.md); all other parameters unchanged.
  * v2-exp.3: display scale 1.0-16.5; unlabeled entries join the school's
  * top labeled team (identity rule change).
+ * v2-exp.4: non-participation (PO / NS / DQ) in non-trial events ranks last;
+ * full Duosmium history imported.
  */
-export const MODEL_VERSION = "v2-exp.3";
+export const MODEL_VERSION = "v2-exp.4";
 export const PARSER_VERSION = "duosmium-adapter/1.1.0";
 
 export interface ModelParams {

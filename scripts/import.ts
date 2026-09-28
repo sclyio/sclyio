@@ -5,7 +5,7 @@ import { args, log, makeAdapter } from "./cli";
 
 /**
  * Usage:
- *   npm run import                      # full import, auto seasons
+ *   npm run import                      # full import, every season in the archive
  *   npm run import -- --seasons 2024,2025,2026   # historical backfill
  *   npm run import -- --local ../duosmium/data   # offline, local checkout
  *   npm run sync                        # incremental (unchanged blobs skipped)
@@ -13,8 +13,8 @@ import { args, log, makeAdapter } from "./cli";
 async function main() {
   const a = args();
   const mode = a.incremental ? "incremental" : "full";
-  const seasonsArg = (a.seasons as string) || process.env.IMPORT_SEASONS || "auto";
-  const seasons = seasonsArg === "auto" ? "auto" : seasonsArg.split(",").map((s) => Number(s.trim()));
+  const seasonsArg = (a.seasons as string) || process.env.IMPORT_SEASONS || "all";
+  const seasons = seasonsArg === "auto" || seasonsArg === "all" ? seasonsArg : seasonsArg.split(",").map((s) => Number(s.trim()));
   const db = openDb();
   const summary = await runImport({
     db,

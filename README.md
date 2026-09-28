@@ -28,8 +28,8 @@ npm run dev                       # http://localhost:3000
 | Command | What it does |
 |---|---|
 | `npm run db:migrate` | Create/upgrade the SQLite schema (`drizzle/`). |
-| `npm run import` | Full import from Duosmium (GitHub git-data API + raw files, cached by blob SHA). Seasons default to `auto` = two most recent completed seasons + current season if present. |
-| `npm run import -- --seasons 2023,2024,2025,2026` | Historical backfill. |
+| `npm run import` | Full import from Duosmium (GitHub git-data API + raw files, cached by blob SHA). Imports every Division B/C season in the archive by default (`--seasons auto` = two most recent completed seasons + current; or an explicit list). |
+| `npm run import -- --seasons 2025,2026` | Import only specific seasons. |
 | `npm run import -- --local ../duosmium/data` | Offline import from a local checkout (also `DUOSMIUM_LOCAL_PATH`). |
 | `npm run sync` | Incremental import: unchanged git blobs are skipped; changed files are re-validated and replaced transactionally. |
 | `npm run ratings:rebuild` | Recompute snapshots from the earliest affected date recorded by imports (no-op when nothing changed). `--full` or `--from YYYY-MM-DD` to force. |
@@ -50,7 +50,7 @@ src/lib/source     duosmium-parse.ts    src/lib/identity        src/lib/db      
 - **Stack**: Next.js 16 (App Router, server components), TypeScript, Tailwind CSS v4, Recharts, lucide-react, SQLite via better-sqlite3 + Drizzle (schema/migrations). Hand-written accessible components in the shadcn style (no generated component library).
 - **Source**: `DuosmiumGitHubAdapter` lists `data/results` through the GitHub git-data API (3 calls per sync) and downloads raw files from `raw.githubusercontent.com` with timeouts, retries with exponential backoff, and bounded concurrency. Bytes are verified against the git blob SHA and cached in `.cache/duosmium/blobs`. `LocalDirectoryAdapter` is the offline path. No results HTML is scraped; no API endpoint was invented.
 - **Scoring**: official ranks, totals, drops, ties, exhibition handling, penalties, and statuses come from the official `sciolyff` interpreter (v0.20.1, MIT). Official standings are stored as published; the model uses a separate eligible-participant ranking.
-- **Validation**: every file is checked with `sciolyff`'s validator (`canonical: false`, because canonical checks make network calls per file). Invalid files are quarantined with a reason without blocking other files. **Policy:** a file whose only failing checks are award metadata (tournament/track trophy, medal, bid counts, or the short-name rule) is imported and flagged, because those fields cannot change placings or points. With the 2026-09-25 source revision: 935 of 965 selected files imported (33 of them with metadata flags), 30 quarantined.
+- **Validation**: every file is checked with `sciolyff`'s validator (`canonical: false`, because canonical checks make network calls per file). Invalid files are quarantined with a reason without blocking other files. **Policy:** a file whose only failing checks are award metadata (tournament/track trophy, medal, bid counts, or the short-name rule) is imported and flagged, because those fields cannot change placings or points. With the 2026-09-25 source revision (all seasons): 4,234 of 4,676 Division B/C files imported, 442 quarantined (mostly older files).
 - **Provenance**: each file records repository path, blob SHA, commit revision, fetched-at, SHA-256, parser version, and Duosmium result URL. Content-hash changes are logged as corrections; a parser-version bump re-parses unchanged files.
 - **Idempotence**: stable ids (file stem, `tournament#teamNumber`, event slug) and per-tournament transactional replacement. Re-imports never duplicate records (tested).
 - **Recalculation**: each tournament's derived observations are hashed; any change (correction, identity mapping, override) records the earliest affected date. The rebuild recomputes only snapshots on/after it, copies earlier ones from the published build, and flips the published build pointer in one transaction. Visitors never see partial rankings. Fits that fail to converge block publication.
@@ -63,18 +63,22 @@ src/lib/source     duosmium-parse.ts    src/lib/identity        src/lib/db      
 - An unlabeled entry joins the school's highest-ranking labeled team in that division and season (mean finishing percentile across its labeled entries; official placements only, not ratings), skipping teams already present at that tournament; several unlabeled entries at one tournament are assigned in finishing order. A school with no labeled team keeps an "unlabeled" team; anything else that cannot be placed is **unresolved** (shown in results and used for School Potential, excluded from Team Performance until mapped in `data/mappings/team-identity.yaml`).
 - Supersede/exclude files, record formats, canceled events, and withdrawn entries in `data/mappings/source-overrides.yaml`. Cross-season event equivalence for School Potential: `data/mappings/event-equivalence.yaml`.
 
-## Rating model (v2-exp.3)
+## Rating model (v2-exp.4)
 
 Implements the SentientTree-informed experimental v2 exactly as specified. Parameters live in `src/lib/rating/config.ts`: 400-day window, 200-day decay, N^0.25, online weight 0.5, λk = 1, λs = **1**, M from the season's official event list, established = all M events comparable plus 3 or more tournaments. Also:
 
 - Preconditioned conjugate gradient solves the strictly convex fit. A solution is accepted only if one alternating update moves no parameter by ≥ 1e-7. The alternating method and a dense solver exist for verification (tests).
 - Graph components per event pool; only the largest component is nationally comparable.
 - Display scale (v2-exp.3): USR = 1 + 15.5 / (1 + e^(-(z - 0.85) / 0.6)), fixed per model version; 2025-26 overall ratings span about 1.3 to 16.2.
+- Non-participation penalty (v2-exp.4): in non-trial events, participation-only, no-show, and disqualified results rank below every placed team, in that official order (ties share a midrank). Trial events do not penalize non-participants.
+- Refits: weekly (Sundays) for the two most recent seasons, every 4 weeks plus the season-final refit for older seasons.
 - Weekly Sunday snapshots per (division, view, season). Overall ratings are stored for every snapshot. Event-level detail is stored for January and March month-ends plus each season's final refit, to bound database size.
 - "Why did this change?" is an exact telescoping decomposition: window/coverage → field recalibration → recency → new results.
 - v1 Elo is implemented (`src/lib/rating/elo-v1.ts`) only as a backtest baseline.
 
 ### Backtest (chronological by tournament; pairwise ordering accuracy)
+
+The table below was measured with v2-exp.2 on the 2024–25 and 2025–26 seasons, before the identity, penalty, and full-history changes; rerun `npm run backtest` to refresh it.
 
 Validation = targets starting 2024-12-01 → 2026-01-31; test = 2026-02-01 onward (held out). Full tables including sensitivity variants: `docs/backtest.md`.
 
@@ -131,20 +135,20 @@ sync → ratings:rebuild → test → db:export → new DB "sclyio-data-<time>-b
    `TURSO_META_URL` = the meta URL, `TURSO_READ_TOKEN` = the read-only group token, optionally `CORRECTIONS_URL`. Redeploy once.
 7. GitHub → repository Settings → Secrets and variables → Actions: secrets `TURSO_API_TOKEN`, `TURSO_ORG`; variable `TURSO_GROUP` if not `default`. The scheduled workflow `sync-and-rebuild` then keeps the site current daily. Run it manually once to confirm.
 
-Storage: two ~665 MB datasets plus the meta database; check that your Turso plan's storage allowance covers ~1.5 GB.
+Storage: two ~1.4 GB datasets plus the meta database; check that your Turso plan's storage allowance covers ~3 GB.
 
 Alternative without Turso: a single VM/container with a persistent disk running `npm start` plus `ops/sync.cron.example`.
 
 ## Known limitations
 
-- Coverage is limited to files published to Duosmium; 30 files are quarantined by SciolyFF validation, including some state tournaments (e.g. 2026 TX and WI states). Many real results never reach the archive.
+- Coverage is limited to files published to Duosmium; 442 files are quarantined by SciolyFF validation, including some state tournaments (e.g. 2026 TX and WI states). Many real results never reach the archive.
 - 904 unresolved entries; possible label splits (e.g. a school's "unlabeled" vs "A" teams) are listed for review but not merged.
 - Tournament format is unknown for all tournaments, so the online discount is inactive.
 - Cross-season event equivalence assumes same-named official events are equivalent; rule changes were not reviewed.
 - Rating history is a reconstruction from today's archive; a publish log exists but past displayed values are not archived.
-- Division A and seasons before 2024–25 are not imported by default (backfill supported).
+- Division A is not imported. The earliest seasons have very few tournaments, so their ratings rest on thin evidence.
 - The 2026–27 season has no published results yet (as of 2026-09-27), so rankings default to 2025–26.
-- The database is large (≈1.1 GB live with two builds retained; ≈665 MB exported), mostly from weekly snapshots and long text keys. Each publish uploads the full export.
+- The database is large (≈3.5 GB live with two builds retained; ≈1.4 GB exported, model observations excluded). Each publish uploads the full export.
 
 ## Attribution and licensing
 
