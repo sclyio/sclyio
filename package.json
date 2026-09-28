@@ -51,6 +51,11 @@
     "vitest": "^5.0.2"
   },
   "engines": {
-    "node": ">=22"
+    "node": "22.x"
+  },
+  "allowScripts": {
+    "better-sqlite3": true,
+    "esbuild": true,
+    "unrs-resolver": true
   }
 }
