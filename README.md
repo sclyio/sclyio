@@ -6,7 +6,7 @@ Journey: find your school → choose your team → understand its rating → ins
 
 - **Team Performance**: actual team entries (school + division + season + label such as "Gold"). Default leaderboard.
 - **School Potential**: event-by-event school superscores within each tournament, re-ranked among unique schools. Fitted separately; never mixed with Team Performance.
-- Ratings are event-first (placement logits, field-strength adjustment, regularized fit), then aggregated. See `/methodology` in the app.
+- Ratings are event-first (placement logits, field-strength adjustment, regularized fit), then aggregated. The method is described in this README (the site itself is deliberately plain: tables and links only).
 
 There are no accounts, rosters, student profiles, or individual ratings: public results do not establish individual contributions.
 
@@ -50,7 +50,7 @@ src/lib/source     duosmium-parse.ts    src/lib/identity        src/lib/db      
 - **Stack**: Next.js 16 (App Router, server components), TypeScript, Tailwind CSS v4, Recharts, lucide-react, SQLite via better-sqlite3 + Drizzle (schema/migrations). Hand-written accessible components in the shadcn style (no generated component library).
 - **Source**: `DuosmiumGitHubAdapter` lists `data/results` through the GitHub git-data API (3 calls per sync) and downloads raw files from `raw.githubusercontent.com` with timeouts, retries with exponential backoff, and bounded concurrency. Bytes are verified against the git blob SHA and cached in `.cache/duosmium/blobs`. `LocalDirectoryAdapter` is the offline path. No results HTML is scraped; no API endpoint was invented.
 - **Scoring**: official ranks, totals, drops, ties, exhibition handling, penalties, and statuses come from the official `sciolyff` interpreter (v0.20.1, MIT). Official standings are stored as published; the model uses a separate eligible-participant ranking.
-- **Validation**: every file is checked with `sciolyff`'s validator (`canonical: false`, because canonical checks make network calls per file). Invalid files are quarantined with a reason without blocking other files. **Policy:** a file whose only failing checks are award metadata (tournament/track trophy, medal, bid counts, or the short-name rule) is imported and flagged, because those fields cannot change placings or points. With the 2026-09-25 source revision: 935 of 965 selected files imported (33 of them with metadata flags), 30 quarantined (listed on `/data`).
+- **Validation**: every file is checked with `sciolyff`'s validator (`canonical: false`, because canonical checks make network calls per file). Invalid files are quarantined with a reason without blocking other files. **Policy:** a file whose only failing checks are award metadata (tournament/track trophy, medal, bid counts, or the short-name rule) is imported and flagged, because those fields cannot change placings or points. With the 2026-09-25 source revision: 935 of 965 selected files imported (33 of them with metadata flags), 30 quarantined.
 - **Provenance**: each file records repository path, blob SHA, commit revision, fetched-at, SHA-256, parser version, and Duosmium result URL. Content-hash changes are logged as corrections; a parser-version bump re-parses unchanged files.
 - **Idempotence**: stable ids (file stem, `tournament#teamNumber`, event slug) and per-tournament transactional replacement. Re-imports never duplicate records (tested).
 - **Recalculation**: each tournament's derived observations are hashed; any change (correction, identity mapping, override) records the earliest affected date. The rebuild recomputes only snapshots on/after it, copies earlier ones from the published build, and flips the published build pointer in one transaction. Visitors never see partial rankings. Fits that fail to converge block publication.
@@ -60,7 +60,7 @@ src/lib/source     duosmium-parse.ts    src/lib/identity        src/lib/db      
 
 - School = normalized name + city + state; same-named schools elsewhere are never auto-merged. Reviewed aliases: `data/mappings/school-aliases.yaml`.
 - Team-season = school + division + season + normalized label. Team numbers are tournament-local and never used.
-- An unlabeled entry is its own "unlabeled team" only if it was the school's sole entry at that tournament; otherwise it is **unresolved**: shown in results and used for School Potential (school is known), excluded from Team Performance until mapped in `data/mappings/team-identity.yaml`. Unlabeled is never assumed to be "A". `/data` lists a review queue of possible label splits.
+- An unlabeled entry is its own "unlabeled team" only if it was the school's sole entry at that tournament; otherwise it is **unresolved**: shown in results and used for School Potential (school is known), excluded from Team Performance until mapped in `data/mappings/team-identity.yaml`. Unlabeled is never assumed to be "A". Possible label splits can be found by querying `team_seasons` for schools with both unlabeled and labeled teams in one season.
 - Supersede/exclude files, record formats, canceled events, and withdrawn entries in `data/mappings/source-overrides.yaml`. Cross-season event equivalence for School Potential: `data/mappings/event-equivalence.yaml`.
 
 ## Rating model (v2-exp.2)
@@ -147,4 +147,4 @@ Alternative without Turso: a single VM/container with a persistent disk running 
 
 ## Attribution and licensing
 
-Results: Duosmium Results (<https://www.duosmium.org/results/>, repository MIT License, © Duosmium contributors); scored with `sciolyff` (MIT). The MIT license covers the repository's code and files. Tournament results remain attributed to Duosmium and the original tournaments, and every result page links its source. The methodology is informed by SentientTree's 2026 SO Rankings; adaptations are documented on `/methodology`. The concept draws on UTR Sports, but scly.io uses none of its branding, text, or algorithm.
+Results: Duosmium Results (<https://www.duosmium.org/results/>, repository MIT License, © Duosmium contributors); scored with `sciolyff` (MIT). The MIT license covers the repository's code and files. Tournament results remain attributed to Duosmium and the original tournaments, and every result page links its source. The methodology is informed by SentientTree's 2026 SO Rankings; adaptations are documented in this README. The concept draws on UTR Sports, but scly.io uses none of its branding, text, or algorithm.
