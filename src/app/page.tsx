@@ -9,10 +9,8 @@ import { getRankings } from "@/lib/queries/rankings";
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const cov = await coverage();
-  const previews = await Promise.all((["C", "B"] as const).map(async (division) => ({
-    division,
-    res: await getRankings({
+  const rankingsPreview = (division: "B" | "C") =>
+    getRankings({
       division,
       view: "team",
       mode: "overall",
@@ -22,9 +20,16 @@ export default async function Home() {
       page: 1,
       onePerSchool: false,
       period: "4w",
-    }),
-  })));
-  const [recent, historical] = await Promise.all([recentTournaments(8), recentlyAddedHistorical(6)]);
+    }).then((res) => ({ division, res }));
+  // Independent queries run in parallel (each is a network round trip in production).
+  const [cov, previewC, previewB, recent, historical] = await Promise.all([
+    coverage(),
+    rankingsPreview("C"),
+    rankingsPreview("B"),
+    recentTournaments(8),
+    recentlyAddedHistorical(6),
+  ]);
+  const previews = [previewC, previewB];
   const totalT = cov.bySeason.reduce((a, b) => a + b.tournaments, 0);
 
   return (

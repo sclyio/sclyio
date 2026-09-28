@@ -1,6 +1,8 @@
 import "server-only";
 import { all, buildId, get, kv } from "./common";
 
+type SiteCounts = { schools: number; teamSeasons: number; entries: number; unresolved: number; results: number; states: number };
+
 export async function coverage() {
   const [bySeason, levels, files, counts, lastSync, lastBuild, sourceRevision, adapter, seasons] = await Promise.all([
     all<{ season: number; division: string; tournaments: number; rated: number; entries: number; first: string; last: string }>(
@@ -10,10 +12,15 @@ export async function coverage() {
     ),
     all<{ level: string; division: string; c: number }>(`SELECT level, division, COUNT(*) AS c FROM tournaments GROUP BY level, division ORDER BY division, c DESC`),
     all<{ status: string; c: number }>(`SELECT status, COUNT(*) AS c FROM source_files GROUP BY status`),
-    get<{ schools: number; teamSeasons: number; entries: number; unresolved: number; results: number; states: number }>(
-      `SELECT (SELECT COUNT(*) FROM schools) AS schools, (SELECT COUNT(*) FROM team_seasons) AS teamSeasons,
-              (SELECT COUNT(*) FROM entries) AS entries, (SELECT COUNT(*) FROM entries WHERE resolution = 'unresolved') AS unresolved,
-              (SELECT COUNT(*) FROM event_results) AS results, (SELECT COUNT(DISTINCT state) FROM schools) AS states`,
+    // Deployed datasets carry precomputed counts (scripts/export-db.ts); local dev counts live.
+    kv("site_counts").then(async (v) =>
+      v
+        ? (JSON.parse(v) as SiteCounts)
+        : get<SiteCounts>(
+            `SELECT (SELECT COUNT(*) FROM schools) AS schools, (SELECT COUNT(*) FROM team_seasons) AS teamSeasons,
+                    (SELECT COUNT(*) FROM entries) AS entries, (SELECT COUNT(*) FROM entries WHERE resolution = 'unresolved') AS unresolved,
+                    (SELECT COUNT(*) FROM event_results) AS results, (SELECT COUNT(DISTINCT state) FROM schools) AS states`,
+          ),
     ),
     kv("last_successful_sync"),
     kv("last_rating_build"),

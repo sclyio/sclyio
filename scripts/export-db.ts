@@ -13,7 +13,9 @@ import { args, log } from "./cli";
 const a = args();
 const out = path.resolve((a.out as string) || "dist-data/sclyio.db");
 fs.mkdirSync(path.dirname(out), { recursive: true });
-if (fs.existsSync(out)) fs.rmSync(out);
+// Remove any previous copy including SQLite sidecar files: a leftover hot
+// -journal from an interrupted export would otherwise be applied to the new file.
+for (const f of [out, `${out}-journal`, `${out}-wal`, `${out}-shm`]) if (fs.existsSync(f)) fs.rmSync(f);
 
 const src = new Database(databasePath(), { readonly: true });
 src.prepare(`VACUUM INTO ?`).run(out);
@@ -27,6 +29,18 @@ db.transaction(() => {
   db.prepare(`DELETE FROM snapshots WHERE build_id <> ?`).run(published);
   db.prepare(`DELETE FROM field_strength WHERE build_id <> ?`).run(published);
 })();
+// Precomputed site-wide counts: the web app reads these instead of scanning
+// large tables on every home/data page visit (slow remotely, billed per row).
+const counts = db
+  .prepare(
+    `SELECT (SELECT COUNT(*) FROM schools) AS schools, (SELECT COUNT(*) FROM team_seasons) AS teamSeasons,
+            (SELECT COUNT(*) FROM entries) AS entries, (SELECT COUNT(*) FROM entries WHERE resolution = 'unresolved') AS unresolved,
+            (SELECT COUNT(*) FROM event_results) AS results, (SELECT COUNT(DISTINCT state) FROM schools) AS states`,
+  )
+  .get();
+db.prepare(`INSERT INTO kv (key, value) VALUES ('site_counts', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(
+  JSON.stringify(counts),
+);
 db.pragma("journal_mode = DELETE");
 db.exec("VACUUM");
 db.close();

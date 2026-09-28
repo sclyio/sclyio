@@ -1,7 +1,7 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import { createClient, type Client, type InArgs } from "@libsql/client";
+import { createClient, type Client, type InArgs, type InValue } from "@libsql/client";
 
 /**
  * Read-only database access for web requests.
@@ -67,9 +67,24 @@ async function resolveUrl(): Promise<{ url: string; token?: string }> {
 
 export type Row = Record<string, unknown>;
 
+/**
+ * Remote libSQL rejects named arguments the statement does not reference
+ * ("Number of arguments mismatch"), while local SQLite ignores them. Pass only
+ * the names that appear in the SQL so both behave the same.
+ */
+export function usedArgs(sqlText: string, args?: InArgs): InArgs {
+  if (!args) return [];
+  if (Array.isArray(args)) return args;
+  const out: Record<string, InValue> = {};
+  for (const [k, v] of Object.entries(args)) {
+    if (new RegExp(`[:@$]${k}(?![A-Za-z0-9_])`).test(sqlText)) out[k] = v;
+  }
+  return out;
+}
+
 async function exec(sqlText: string, args?: InArgs) {
   const { url, token } = await resolveUrl();
-  return client(url, token).execute({ sql: sqlText, args: args ?? [] });
+  return client(url, token).execute({ sql: sqlText, args: usedArgs(sqlText, args) });
 }
 
 /** All rows as plain objects. */
