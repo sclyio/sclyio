@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { Avatar, Change, RatingBadge, seasonLabel, seasonRange, Tabs, teamLabel, usr } from "@/components/plain";
+import { Avatar, Change, RatingBadge, seasonLabel, seasonRange, Tabs, teamLabel, TournamentLink, usr } from "@/components/plain";
 import { RatingChart } from "@/components/rating-chart";
 import { STATUS_TEXT } from "@/lib/format";
 import { officialEvents } from "@/lib/queries/common";
@@ -67,11 +67,6 @@ export default async function TeamPage(props: PageProps<"/teams/[id]">) {
               <Link href={`/schools/${t.schoolId}`}>{t.schoolName}</Link> · {[t.city, t.state].filter(Boolean).join(", ")} · Division {division} ·{" "}
               {seasonRange(t.firstSeason!, t.season!)}
             </div>
-            <div style={{ marginTop: 10 }}>
-              <Link className="chip" href={`/compare?view=team&div=${division}&season=${season}&ids=${encodeURIComponent(id)}`}>
-                Compare
-              </Link>
-            </div>
           </div>
           <div className="badges">
             <RatingBadge label="USR" value={latest?.usr} coverage={latest && M ? latest.comparableEvents! / M : undefined} sub={status} />
@@ -124,9 +119,7 @@ export default async function TeamPage(props: PageProps<"/teams/[id]">) {
                 <section key={a.entryId} className="card">
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                     <div>
-                      <Link href={`/tournaments/${a.tournamentId}`} style={{ fontWeight: 700 }}>
-                        {a.tournamentName}
-                      </Link>
+                      <TournamentLink url={a.resultUrl} name={a.tournamentName} bold />
                       <div className="muted">
                         {a.endDate} · {a.level}
                       </div>

@@ -23,8 +23,12 @@
  * tournaments weigh more (exp of the tournament's mean field offset).
  * Also: trial events are never rated, and cross-season event equivalence is
  * chained (fixes prior seasons being dropped at the start of each season).
+ * v2-exp.8: tournament weight = level (Invitational < Regionals < States <
+ * Nationals) x format (satellite/online discounted; detected from the name)
+ * x early-season invitational discount x competitiveness (how many strong
+ * teams attend), replacing the field-offset strength weight.
  */
-export const MODEL_VERSION = "v2-exp.7";
+export const MODEL_VERSION = "v2-exp.8";
 export const PARSER_VERSION = "duosmium-adapter/1.1.0";
 
 export interface ModelParams {
@@ -36,12 +40,17 @@ export interface ModelParams {
   seasonWeights: number[];
   /** Within-season recency decay: exp(-days / decayDays), days counted back from the season end or as-of date. */
   decayDays: number;
+  /** Tournament level weights (Duosmium level names); unknown levels weigh 1. */
+  levelWeights: Record<string, number>;
+  /** Invitationals early in the season, by end-date month (1-12); other months weigh 1. */
+  earlyInvitationalWeights: Record<number, number>;
   /**
-   * Tournament strength weight: exp(strengthExponent x mean field offset k).
-   * k spans about -0.5 (weak local fields) to 1.6 (Nationals, MIT), so 1
-   * weighs Nationals about 4.5x a typical invitational. 0 disables it.
+   * Competitiveness: C = sum over participants of softplus(z - threshold)
+   * from a first fit; weight = (1 + C)^competitivenessExponent. More teams
+   * and more high-rated teams raise it. 0 disables it.
    */
-  strengthExponent: number;
+  competitivenessExponent: number;
+  competitivenessThreshold: number;
   /** Exponent on unique eligible schools in the event field. */
   fieldSizeExponent: number;
   /** format_weight for explicitly online / satellite tournaments. */
@@ -79,9 +88,12 @@ export interface ModelParams {
 export const DEFAULT_PARAMS: ModelParams = {
   seasonWeights: [1, 0.5, 0.25, 0.125],
   decayDays: 200,
-  strengthExponent: 1,
+  levelWeights: { Invitational: 1, Regionals: 1.2, States: 1.4, Nationals: 1.6 },
+  earlyInvitationalWeights: { 9: 0.5, 10: 0.5, 11: 0.7, 12: 0.85 },
+  competitivenessExponent: 0.5,
+  competitivenessThreshold: 1.5,
   fieldSizeExponent: 0.25,
-  onlineWeight: 0.5,
+  onlineWeight: 0.6,
   unknownFormatWeight: 1,
   lambdaS: 1,
   lambdaK: 1,

@@ -51,12 +51,20 @@ src/lib/source     duosmium-parse.ts    src/lib/identity  src/lib/db  src/lib/ra
 - Teams are numbered by finish: at each tournament a school's entries are ordered by official rank; the best finisher is **Team 1**, the next **Team 2**, and so on (exhibition entries last). A team spans seasons, so Team 1 in 2000 and Team 1 in 2025 share one results page. Source labels ("Gold", "A") are not used. `data/mappings/team-identity.yaml` can exclude a specific entry.
 - `data/mappings/source-overrides.yaml`: supersede/exclude files, formats, canceled events, withdrawn entries. `data/mappings/event-equivalence.yaml`: which earlier-season events count toward this season's events (consecutive same-named events, chained across seasons).
 
-## Rating model (v2-exp.7)
+## Rating model (v2-exp.8)
 
 Parameters live in `src/lib/rating/config.ts`.
 
 - **Observation**: each eligible event placement becomes x = ln((n + 1 − r) / r) among the n eligible participants.
-- **Weights**: season weight (last 4 seasons: 1, 1/2, 1/4, 1/8) × within-season recency exp(−days/200), counted back from the as-of date or, for earlier seasons, from that season's last tournament × tournament strength exp(k̄), where k̄ is the tournament's mean fitted field offset (Nationals and MIT weigh about 4.5× a typical invitational; the fit runs twice, first to measure k̄) × field size N^0.25 × format (online 0.5).
+- **Weights** (multiplied together):
+  - Season: last 4 seasons at 1, 1/2, 1/4, 1/8.
+  - Recency within a season: exp(−days/200), counted back from the as-of date or, for earlier seasons, from that season's last tournament.
+  - Level: Invitational 1, Regionals 1.2, States 1.4, Nationals 1.6.
+  - Early-season invitationals: × 0.5 in September–October, 0.7 in November, 0.85 in December.
+  - Format: satellite/online × 0.6 (detected from the tournament name or a field of more than 150 teams; overrides in `source-overrides.yaml`).
+  - Competitiveness: (1 + C)^0.5, where C sums each participant's margin above z = 1.5 (a smooth max(0, z − 1.5)), with participants rated by a first fit. More strong teams raise it; a huge field of average teams does not. MIT is about as competitive as Nationals.
+  - The tournaments page ranks tournaments by level × format × early-season × competitiveness (recency and field size are left out there, since they depend on the date and the event).
+  - Field size: N^0.25 unique schools in the event.
 - **Fit**: per event, entity skills s and field offsets k minimize the weighted squared error of x + k − s with ridge penalties λs = 1, λk = 1, solved by preconditioned conjugate gradient. Only the largest connected component of each event graph is nationally comparable.
 - **Overall**: mean over the season's M official events (missing events count as 0); schools use a softplus mean so strong results count more. Established = all M events comparable and ≥ 3 tournaments.
 - **Display**: USR = 1 + 15.5 / (1 + e^(−(z − 0.85) / 0.6)).
@@ -96,4 +104,4 @@ Storage: two ~1.4 GB datasets plus the meta database.
 
 ## Attribution and licensing
 
-Results: Duosmium Results (<https://www.duosmium.org/results/>, repository MIT License, © Duosmium contributors); scored with `sciolyff` (MIT). Tournament results remain attributed to Duosmium and the original tournaments, and every result page links its source. The methodology is informed by SentientTree's SO Rankings. The concept draws on UTR Sports, but scly.io uses none of its branding, text, or algorithm.
+Results: Duosmium Results (<https://www.duosmium.org/results/>, repository MIT License, © Duosmium contributors); scored with `sciolyff` (MIT). Tournament results remain attributed to Duosmium and the original tournaments; every tournament link goes to its Duosmium results page. The methodology is informed by SentientTree's SO Rankings. The concept draws on UTR Sports, but scly.io uses none of its branding, text, or algorithm.

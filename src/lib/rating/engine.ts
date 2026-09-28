@@ -5,6 +5,8 @@ import { addDays, toUsr } from "./math";
 import {
   attributeChange,
   computeSnapshot,
+  formatWeight,
+  levelWeight,
   ratingStatus,
   seasonEndsOf,
   type PoolObservation,
@@ -127,6 +129,10 @@ export function rebuildRatings(opts: RebuildOptions) {
     let snapshotsComputed = 0;
     let snapshotsCopied = 0;
     const failures: string[] = [];
+    const competitiveness = new Map<string, number>();
+    const seasonOf = new Map(
+      (s.prepare(`SELECT id, season FROM tournaments`).all() as { id: string; season: number }[]).map((r) => [r.id, r.season]),
+    );
 
     for (const view of ["team", "school"] as RatingView[]) {
       for (const division of ["B", "C"]) {
@@ -164,6 +170,10 @@ export function rebuildRatings(opts: RebuildOptions) {
             const isFinal = di === pool.dates.length - 1;
             const isMonthEnd = !nextDate || nextDate.slice(5, 7) !== asOf.slice(5, 7);
             const detail = isFinal || (pool.recent !== false && isMonthEnd && detailMonths.has(month));
+            // Tournament competitiveness as of its own season's final team refit.
+            if (isFinal && view === "team") {
+              for (const [t, c] of snap.competitiveness) if (seasonOf.get(t) === pool.season) competitiveness.set(t, c);
+            }
             writeSnapshot({
               snap,
               prev,
@@ -192,7 +202,7 @@ export function rebuildRatings(opts: RebuildOptions) {
     if (from && prevBuild) {
       snapshotsCopied = copySnapshots(db, prevBuild, buildId, from);
     }
-    computeFieldStrength(db, buildId);
+    computeFieldStrength(db, buildId, competitiveness, prevBuild, p);
 
     // Atomic publish.
     s.transaction(() => {
@@ -268,9 +278,10 @@ export function planPools(db: DB): PoolSpec[] {
 export function loadObservations(db: DB, division: string, view: RatingView): Map<string, PoolObservation[]> {
   const rows = db.$client
     .prepare(
-      `SELECT entity_id AS entityId, tournament_event_id AS fieldId, tournament_id AS tournamentId, event_def_id AS eventDefId,
-              season AS defSeason, end_date AS endDate, n_schools AS nSchools, x, format
-       FROM observations WHERE division=? AND view=? ORDER BY end_date, tournament_event_id, entity_id`,
+      `SELECT o.entity_id AS entityId, o.tournament_event_id AS fieldId, o.tournament_id AS tournamentId, o.event_def_id AS eventDefId,
+              o.season AS defSeason, o.end_date AS endDate, o.n_schools AS nSchools, o.x, o.format, t.level
+       FROM observations o JOIN tournaments t ON t.id = o.tournament_id
+       WHERE o.division=? AND o.view=? ORDER BY o.end_date, o.tournament_event_id, o.entity_id`,
     )
     .all(division, view) as PoolObservation[];
   const byDef = new Map<string, PoolObservation[]>();
@@ -458,25 +469,47 @@ function copySnapshots(db: DB, fromBuild: number, toBuild: number, before: strin
 /**
  * Pre-tournament field strength: ratings from the latest snapshot strictly
  * before the tournament's start date (no post-tournament information).
+ * Also stores each rated tournament's competitiveness (from its season's
+ * final refit; carried over from the previous build when that season was not
+ * recomputed) and its weight = competitiveness x level x format.
  */
-function computeFieldStrength(db: DB, buildId: number) {
+function computeFieldStrength(db: DB, buildId: number, competitiveness: Map<string, number>, prevBuild: number | null, p: ModelParams) {
   const s = db.$client;
-  const tournaments = s.prepare(`SELECT id, division, season, start_date FROM tournaments`).all() as {
+  const tournaments = s
+    .prepare(`SELECT id, division, season, start_date, end_date, level, format, rating_eligible FROM tournaments`)
+    .all() as {
     id: string;
     division: string;
     season: number;
     start_date: string;
+    end_date: string;
+    level: string;
+    format: string;
+    rating_eligible: number;
   }[];
+  const prevComp = new Map(
+    prevBuild
+      ? (
+          s
+            .prepare(`SELECT tournament_id, competitiveness FROM field_strength WHERE build_id=? AND view='team' AND competitiveness IS NOT NULL`)
+            .all(prevBuild) as { tournament_id: string; competitiveness: number }[]
+        ).map((r) => [r.tournament_id, r.competitiveness])
+      : [],
+  );
   const ins = s.prepare(
-    `INSERT INTO field_strength (build_id, tournament_id, view, pre_snapshot_as_of, entries, rated, established, mean_usr, top5_mean_usr)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO field_strength (build_id, tournament_id, view, pre_snapshot_as_of, entries, rated, established, mean_usr, top5_mean_usr,
+       competitiveness, weight)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const findSnap = s.prepare(
     `SELECT id, as_of FROM snapshots WHERE build_id=? AND division=? AND view=? AND season=? AND as_of < ? ORDER BY as_of DESC LIMIT 1`,
   );
   s.transaction(() => {
     for (const t of tournaments) {
+      const comp = t.rating_eligible ? (competitiveness.get(t.id) ?? prevComp.get(t.id) ?? null) : null;
+      const weight = comp === null ? null : comp * levelWeight(t.level, t.end_date, p) * formatWeight(t.format, p);
       for (const view of ["team", "school"] as RatingView[]) {
+        const cw = view === "team" ? [comp, weight] : [null, null];
         const entities =
           view === "team"
             ? (s
@@ -488,7 +521,7 @@ function computeFieldStrength(db: DB, buildId: number) {
         const total = view === "team" ? (s.prepare(`SELECT COUNT(*) c FROM entries WHERE tournament_id=? AND exhibition=0`).get(t.id) as { c: number }).c : entities.length;
         const snap = findSnap.get(buildId, t.division, view, t.season, t.start_date) as { id: number; as_of: string } | undefined;
         if (!snap) {
-          ins.run(buildId, t.id, view, null, total, 0, 0, null, null);
+          ins.run(buildId, t.id, view, null, total, 0, 0, null, null, ...cw);
           continue;
         }
         const ids = entities.map((e) => e.id).filter((x): x is string => Boolean(x));
@@ -501,7 +534,7 @@ function computeFieldStrength(db: DB, buildId: number) {
         const est = ratings.filter((r) => r.status === "established").map((r) => r.usr).sort((a, b) => b - a);
         const mean = est.length ? est.reduce((a, b) => a + b, 0) / est.length : null;
         const top5 = est.length >= 5 ? est.slice(0, 5).reduce((a, b) => a + b, 0) / 5 : null;
-        ins.run(buildId, t.id, view, snap.as_of, total, ratings.length, est.length, mean, top5);
+        ins.run(buildId, t.id, view, snap.as_of, total, ratings.length, est.length, mean, top5, ...cw);
       }
     }
   })();

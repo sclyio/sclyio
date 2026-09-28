@@ -425,6 +425,9 @@ export const fieldStrength = sqliteTable(
     established: integer("established").notNull(),
     meanUsr: real("mean_usr"),
     top5MeanUsr: real("top5_mean_usr"),
+    /** Rated tournaments (team view row): competitiveness multiplier and total weight. */
+    competitiveness: real("competitiveness"),
+    weight: real("weight"),
   },
   (t) => [primaryKey({ columns: [t.buildId, t.tournamentId, t.view] })],
 );

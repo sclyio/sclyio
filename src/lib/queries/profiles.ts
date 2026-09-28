@@ -359,7 +359,7 @@ export async function schoolProfile(id: string) {
       [id],
     ),
     all(
-      `SELECT t.id, t.name, t.level, t.division, t.season, t.end_date, COUNT(*) AS entries, MIN(e.rank) AS best_rank,
+      `SELECT t.id, t.name, t.level, t.division, t.season, t.end_date, t.result_url, COUNT(*) AS entries, MIN(e.rank) AS best_rank,
               (SELECT COUNT(*) FROM entries x WHERE x.tournament_id = t.id AND x.exhibition = 0) AS field
        FROM entries e JOIN tournaments t ON t.id = e.tournament_id WHERE e.school_id = ? GROUP BY t.id ORDER BY t.end_date DESC`,
       [id],

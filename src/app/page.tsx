@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { Avatar, Change, teamLabel, usr } from "@/components/plain";
+import { HeroArt } from "@/components/hero-art";
+import { Avatar, Change, teamLabel, TournamentLink, usr } from "@/components/plain";
+import { kv } from "@/lib/queries/common";
 import { recentTournaments } from "@/lib/queries/coverage";
 import { getRankings } from "@/lib/queries/rankings";
 
@@ -18,10 +20,40 @@ const top = (division: "B" | "C") =>
     period: "4w",
   });
 
+const fmt = (n: number | undefined) => (n === undefined ? null : n.toLocaleString("en-US"));
+
 export default async function Home() {
-  const [c, b, recent] = await Promise.all([top("C"), top("B"), recentTournaments(8)]);
+  const [c, b, recent, countsRaw] = await Promise.all([top("C"), top("B"), recentTournaments(8), kv("site_counts")]);
+  let counts: { teams?: number; schools?: number; entries?: number } = {};
+  try {
+    counts = countsRaw ? JSON.parse(countsRaw) : {};
+  } catch {
+    counts = {};
+  }
+  const stats = [
+    { value: fmt(counts.schools), label: "schools" },
+    { value: fmt(counts.teams), label: "teams" },
+    { value: fmt(counts.entries), label: "tournament entries" },
+  ].filter((s) => s.value);
   return (
     <>
+      <section className="hero">
+        <HeroArt />
+        <h1 className="hero-title">
+          Universal Science Olympiad Rating
+        </h1>
+        <p className="hero-byline">by cyclommatus.metallifer</p>
+        {stats.length ? (
+          <div className="hero-stats">
+            {stats.map((s) => (
+              <span key={s.label}>
+                <b>{s.value}</b> {s.label}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </section>
+
       <div className="grid2">
         {[
           { d: "C", r: c },
@@ -60,7 +92,7 @@ export default async function Home() {
           {recent.map((t) => (
             <li key={t.id} className="row">
               <span className="who">
-                <Link href={`/tournaments/${t.id}`}>{t.name}</Link>
+                <TournamentLink url={t.result_url} name={t.name} />
                 <div className="sub">
                   Division {t.division} · {t.level} · {t.end_date}
                 </div>

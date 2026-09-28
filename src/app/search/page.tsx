@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Avatar, teamLabel, usr } from "@/components/plain";
+import { Avatar, teamLabel, TournamentLink, usr } from "@/components/plain";
 import { search } from "@/lib/queries/search";
 
 export const dynamic = "force-dynamic";
@@ -66,7 +66,7 @@ export default async function SearchPage(props: PageProps<"/search">) {
                 {r.tournaments.map((t) => (
                   <li key={t.id} className="row">
                     <span className="who">
-                      <Link href={`/tournaments/${t.id}`}>{t.name}</Link>
+                      <TournamentLink url={t.result_url} name={t.name} />
                       <div className="sub">
                         {t.end_date} · Division {t.division} · {t.level}
                       </div>

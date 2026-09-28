@@ -1,6 +1,5 @@
-import Link from "next/link";
 import type { Metadata } from "next";
-import { Pager } from "@/components/plain";
+import { Pager, seasonLabel } from "@/components/plain";
 import { listTournaments, T_PAGE, tournamentFilters } from "@/lib/queries/tournaments";
 
 export const dynamic = "force-dynamic";
@@ -11,28 +10,29 @@ const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) 
 export default async function TournamentsPage(props: PageProps<"/tournaments">) {
   const sp = (await props.searchParams) as Record<string, string | string[] | undefined>;
   const page = Math.max(1, Number(one(sp.page)) || 1);
-  const [f, { total, rows }] = await Promise.all([
-    tournamentFilters(),
-    listTournaments({
-      division: one(sp.div) || undefined,
-      season: Number(one(sp.season)) || undefined,
-      level: one(sp.level) || undefined,
-      state: one(sp.state) || undefined,
-      from: one(sp.from) || undefined,
-      to: one(sp.to) || undefined,
-      page,
-    }),
-  ]);
+  const f = await tournamentFilters();
+  // Default to the latest season; "all" lists every season.
+  const seasonParam = one(sp.season);
+  const season = seasonParam === "all" ? undefined : Number(seasonParam) || f.seasons[0];
+  const sort = one(sp.sort) === "date" ? "date" : "weight";
+  const { total, rows } = await listTournaments({
+    sort,
+    division: one(sp.div) || undefined,
+    season,
+    level: one(sp.level) || undefined,
+    state: one(sp.state) || undefined,
+    page,
+  });
   const qs = Object.fromEntries(Object.entries(sp).filter(([k, v]) => k !== "page" && one(v)).map(([k, v]) => [k, one(v)]));
   return (
     <>
       <h1>Tournaments</h1>
       <form action="/tournaments" className="filters">
-        <select name="season" defaultValue={one(sp.season)} aria-label="Season">
-          <option value="">All seasons</option>
+        <select name="season" defaultValue={season ? String(season) : "all"} aria-label="Season">
+          <option value="all">All seasons</option>
           {f.seasons.map((s) => (
             <option key={s} value={s}>
-              {s - 1}-{String(s).slice(2)} season
+              {seasonLabel(s)} season
             </option>
           ))}
         </select>
@@ -53,8 +53,10 @@ export default async function TournamentsPage(props: PageProps<"/tournaments">) 
             <option key={s}>{s}</option>
           ))}
         </select>
-        <input type="date" name="from" defaultValue={one(sp.from)} aria-label="From" />
-        <input type="date" name="to" defaultValue={one(sp.to)} aria-label="To" />
+        <select name="sort" defaultValue={sort} aria-label="Sort by">
+          <option value="weight">Sort by weight</option>
+          <option value="date">Sort by date</option>
+        </select>
         <button>Apply</button>
       </form>
       <section className="card flush">
@@ -64,16 +66,25 @@ export default async function TournamentsPage(props: PageProps<"/tournaments">) 
           </p>
         ) : (
           <ul className="rows">
-            {rows.map((t) => (
+            <li className="row head">
+              {sort === "weight" ? <span className="rank">#</span> : null}
+              <span className="who">Tournament</span>
+              <span className="pill-h">Weight</span>
+            </li>
+            {rows.map((t, i) => (
               <li key={String(t.id)} className="row">
+                {sort === "weight" ? <span className="rank">{t.weight === null ? "-" : (page - 1) * T_PAGE + i + 1}</span> : null}
                 <span className="who">
-                  <Link href={`/tournaments/${t.id}`}>{String(t.name)}</Link>
+                  <a href={String(t.result_url)} target="_blank" rel="noopener noreferrer">
+                    {String(t.name)}
+                  </a>
                   <div className="sub">
                     {String(t.end_date)} · Division {String(t.division)} · {String(t.level)}
-                    {t.state ? ` · ${String(t.state)}` : ""}
+                    {t.format === "online" ? " · Online" : ""}
+                    {t.state ? ` · ${String(t.state)}` : ""} · {String(t.team_count)} teams
                   </div>
                 </span>
-                <span className="muted">{String(t.team_count)} teams</span>
+                <span className="pill">{t.weight === null ? "-" : Number(t.weight).toFixed(1)}</span>
               </li>
             ))}
           </ul>

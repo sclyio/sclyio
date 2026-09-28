@@ -20,6 +20,15 @@ export function teamLabel(designation: string | null | undefined) {
   return designation ? designation : "";
 }
 
+/** Tournament name linking to its official results on Duosmium. */
+export function TournamentLink({ url, name, bold }: { url: string; name: string; bold?: boolean }) {
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" style={bold ? { fontWeight: 700 } : undefined}>
+      {name}
+    </a>
+  );
+}
+
 /** Season label: 2026 -> "2025-26" (seasons run September to June). */
 export const seasonLabel = (season: number) => `${season - 1}-${String(season).slice(2)}`;
 

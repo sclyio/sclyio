@@ -20,6 +20,8 @@ export interface PoolObservation {
   nSchools: number;
   x: number;
   format: string;
+  /** Tournament level: Invitational | Regionals | States | Nationals. */
+  level?: string;
 }
 
 export interface EventFitState {
@@ -82,12 +84,24 @@ export interface SnapshotResult {
   overall: Map<string, OverallOut>;
   /** Season Trend: overall z from a fit to the rated season's results only. */
   trend: Map<string, number>;
+  /** Tournament id -> competitiveness multiplier used in this fit. */
+  competitiveness: Map<string, number>;
 }
 
 export function formatWeight(format: string, p: ModelParams): number {
   if (format === "online") return p.onlineWeight;
   if (format === "unknown") return p.unknownFormatWeight;
   return 1;
+}
+
+/**
+ * Tournament level weight (Invitational < Regionals < States < Nationals; 1
+ * when unknown), times the early-season discount for invitationals.
+ */
+export function levelWeight(level: string | undefined, endDate: string | undefined, p: ModelParams): number {
+  const base = (level && p.levelWeights[level]) || 1;
+  if (level !== "Invitational" || !endDate) return base;
+  return base * (p.earlyInvitationalWeights[Number(endDate.slice(5, 7))] ?? 1);
 }
 
 /** Season weight of a result when rating `season` (0 = outside the counted seasons). */
@@ -101,7 +115,7 @@ export interface WeightContext {
   asOf: string;
   /** Last result date of each season: recency is measured back from min(asOf, season end). */
   seasonEnds?: Map<number, string>;
-  /** Tournament id -> strength multiplier (1 when absent). */
+  /** Tournament id -> competitiveness multiplier (1 when absent). */
   strength?: Map<string, number>;
 }
 
@@ -117,12 +131,16 @@ export function recencyWeight(o: { endDate: string; defSeason: number }, ctx: We
 }
 
 export function observationWeight(
-  o: { defSeason: number; nSchools: number; format: string; endDate?: string; tournamentId?: string },
+  o: { defSeason: number; nSchools: number; format: string; level?: string; endDate?: string; tournamentId?: string },
   season: number,
   p: ModelParams,
   ctx?: WeightContext,
 ) {
-  let w = seasonWeight(o.defSeason, season, p) * Math.pow(o.nSchools, p.fieldSizeExponent) * formatWeight(o.format, p);
+  let w =
+    seasonWeight(o.defSeason, season, p) *
+    Math.pow(o.nSchools, p.fieldSizeExponent) *
+    formatWeight(o.format, p) *
+    levelWeight(o.level, o.endDate, p);
   if (ctx && o.endDate) w *= recencyWeight({ endDate: o.endDate, defSeason: o.defSeason }, ctx, p);
   if (ctx?.strength && o.tournamentId) w *= ctx.strength.get(o.tournamentId) ?? 1;
   return w;
@@ -140,27 +158,31 @@ export function seasonEndsOf(byDef: Map<string, PoolObservation[]>): Map<number,
   return out;
 }
 
+const softplus = (x: number) => (x > 0 ? x + Math.log1p(Math.exp(-x)) : Math.log1p(Math.exp(x)));
+
 /**
- * Tournament strength multipliers from a fit: exp(strengthExponent x the
- * tournament's mean field offset k), so results against stronger fields
- * (larger k) weigh more.
+ * Tournament competitiveness multipliers: C = sum over the tournament's
+ * participants of softplus(3 (z - competitivenessThreshold)) / 3 (a smooth
+ * max(0, z - threshold)), using ratings from a first fit, and multiplier
+ * (1 + C)^competitivenessExponent. Each strong team adds about its margin
+ * above the threshold and weaker teams add almost nothing, so more
+ * high-rated teams make a tournament more competitive (a strong invitational
+ * such as MIT approaches Nationals) while a huge field of average teams does not.
  */
-export function tournamentStrength(
-  fieldFits: SnapshotResult["fieldFits"],
-  fieldTournament: Map<string, string>,
+export function tournamentCompetitiveness(
+  participants: Map<string, Set<string>>, // tournament id -> entity ids
+  z: (entityId: string) => number | undefined,
   p: ModelParams,
 ): Map<string, number> {
-  const acc = new Map<string, { kw: number; w: number }>();
-  for (const f of fieldFits) {
-    const t = fieldTournament.get(f.fieldId);
-    if (!t) continue;
-    const a = acc.get(t) ?? { kw: 0, w: 0 };
-    a.kw += f.k * f.weight;
-    a.w += f.weight;
-    acc.set(t, a);
-  }
   const out = new Map<string, number>();
-  for (const [t, a] of acc) out.set(t, Math.exp(p.strengthExponent * (a.w > 0 ? a.kw / a.w : 0)));
+  for (const [t, ids] of participants) {
+    let c = 0;
+    for (const id of ids) {
+      const v = z(id);
+      if (v !== undefined) c += softplus(3 * (v - p.competitivenessThreshold)) / 3;
+    }
+    out.set(t, Math.pow(1 + c, p.competitivenessExponent));
+  }
   return out;
 }
 
@@ -298,9 +320,10 @@ export function fitEventPool(
  * main rating uses the last seasons (season- and recency-weighted); the
  * Season Trend repeats the fit with the rated season's results only.
  *
- * Tournament strength needs fitted field offsets, so the main fit runs
- * twice: once to measure each tournament's strength, then again with the
- * strength multipliers applied (skipped when strengthExponent is 0).
+ * Tournament competitiveness needs participants' ratings, so the main fit
+ * runs twice: once (without competitiveness) to rate everyone, then again
+ * with each tournament's competitiveness multiplier applied (skipped when
+ * competitivenessExponent is 0).
  */
 export function computeSnapshot(args: {
   asOf: string;
@@ -326,24 +349,43 @@ export function computeSnapshot(args: {
     { tournaments: Set<string>; obs: number; last: string | null; current: boolean; observed: Set<string> }
   >();
 
+  const overallOf = (states: Map<string, EventFitState>, entityId: string) => {
+    const vals: (number | null)[] = [];
+    let comparable = 0;
+    for (const def of officialEventDefs) {
+      const st = states.get(def)!;
+      if (st.component.get(entityId) === 0) {
+        comparable++;
+        vals.push(view === "school" ? st.q.get(entityId)! : st.s.get(entityId)!);
+      } else {
+        vals.push(null); // missing or not nationally comparable -> latent prior
+      }
+    }
+    return { z: view === "school" ? schoolOverall(vals, M) : teamOverall(vals, M), comparable };
+  };
+
   const obsByDef = new Map<string, PoolObservation[]>();
-  const fieldTournament = new Map<string, string>();
+  const participants = new Map<string, Set<string>>(); // tournament -> entities
   for (const def of officialEventDefs) {
     const obs: PoolObservation[] = [];
     for (const d of args.poolDefs.get(def) ?? [def]) {
       for (const o of args.observationsByDef.get(d) ?? []) {
         if (!inWindow(o, asOf, season, p)) continue;
         obs.push(o);
-        fieldTournament.set(o.fieldId, o.tournamentId);
+        let set = participants.get(o.tournamentId);
+        if (!set) participants.set(o.tournamentId, (set = new Set()));
+        set.add(o.entityId);
       }
     }
     obsByDef.set(def, obs);
   }
   const ctx: WeightContext = { asOf, seasonEnds };
-  if (p.strengthExponent !== 0) {
-    const first: SnapshotResult["fieldFits"] = [];
-    for (const def of officialEventDefs) first.push(...fitEventPool(def, obsByDef.get(def)!, asOf, season, p, view, ctx).fieldFits);
-    ctx.strength = tournamentStrength(first, fieldTournament, p);
+  if (p.competitivenessExponent !== 0) {
+    const first = new Map<string, EventFitState>();
+    for (const def of officialEventDefs) first.set(def, fitEventPool(def, obsByDef.get(def)!, asOf, season, p, view, ctx).state);
+    const z = new Map<string, number>();
+    for (const ids of participants.values()) for (const id of ids) if (!z.has(id)) z.set(id, overallOf(first, id).z);
+    ctx.strength = tournamentCompetitiveness(participants, (id) => z.get(id), p);
   }
 
   for (const def of officialEventDefs) {
@@ -369,20 +411,6 @@ export function computeSnapshot(args: {
     }
   }
 
-  const overallOf = (states: Map<string, EventFitState>, entityId: string) => {
-    const vals: (number | null)[] = [];
-    let comparable = 0;
-    for (const def of officialEventDefs) {
-      const st = states.get(def)!;
-      if (st.component.get(entityId) === 0) {
-        comparable++;
-        vals.push(view === "school" ? st.q.get(entityId)! : st.s.get(entityId)!);
-      } else {
-        vals.push(null); // missing or not nationally comparable -> latent prior
-      }
-    }
-    return { z: view === "school" ? schoolOverall(vals, M) : teamOverall(vals, M), comparable };
-  };
   const overall = new Map<string, OverallOut>();
   const trend = new Map<string, number>();
   for (const [entityId, info] of entityInfo) {
@@ -400,7 +428,7 @@ export function computeSnapshot(args: {
       hasCurrentSeason: info.current,
     });
   }
-  return { asOf, events, eventRatings, diagnostics, fieldFits, overall, trend };
+  return { asOf, events, eventRatings, diagnostics, fieldFits, overall, trend, competitiveness: ctx.strength ?? new Map() };
 }
 
 export type RatingStatus = "established" | "provisional" | "inactive";

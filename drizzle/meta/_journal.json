@@ -15,6 +15,13 @@
       "when": 1790640000000,
       "tag": "0001_teams_across_seasons",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790650000000,
+      "tag": "0002_tournament_weight",
+      "breakpoints": true
     }
   ]
 }

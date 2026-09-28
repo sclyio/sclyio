@@ -20,15 +20,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <form action="/search" className="topsearch" role="search">
               <input name="q" required minLength={2} placeholder="Search schools, teams, tournaments" aria-label="Search" />
             </form>
-            <nav className="nav">
-              <Link href="/rankings">Rankings</Link>
-              <Link href="/teams">Teams</Link>
-              <Link href="/tournaments">Tournaments</Link>
-              <Link href="/compare">Compare</Link>
-            </nav>
           </div>
         </header>
         <main className="container">{children}</main>
+        <footer className="footer">
+          Contact: <a href="mailto:universal.scioly.rating@gmail.com">universal.scioly.rating@gmail.com</a>
+        </footer>
       </body>
     </html>
   );

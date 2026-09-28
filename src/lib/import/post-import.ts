@@ -23,6 +23,17 @@ export function postImport(db: DB, mappings: Mappings, preliminary: Set<string>,
     s.prepare(
       `UPDATE tournaments SET format='unknown', format_basis=NULL, rating_eligible=1, exclusion_reason=NULL, superseded_by=NULL, preliminary=0`,
     ).run();
+    // Online/satellite format from the tournament name, or a field too large
+    // for an in-person invitational (reviewed overrides below take precedence).
+    s.prepare(
+      `UPDATE tournaments SET format='online', format_basis='Name says satellite, virtual, or online'
+       WHERE lower(name) LIKE '%satellite%' OR lower(name) LIKE '%virtual%' OR lower(name) LIKE '%online%'
+          OR lower(coalesce(short_name, '')) LIKE '%satellite%'`,
+    ).run();
+    s.prepare(
+      `UPDATE tournaments SET format='online', format_basis='More than 150 teams (larger than any in-person invitational)'
+       WHERE format='unknown' AND level='Invitational' AND team_count > 150`,
+    ).run();
     const setPre = s.prepare(`UPDATE tournaments SET preliminary=1, rating_eligible=0, exclusion_reason=? WHERE id=?`);
     for (const id of preliminary) setPre.run("Marked preliminary by Duosmium (results not final)", id);
     const o = mappings.sourceOverrides;

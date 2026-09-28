@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { Avatar, RatingBadge, seasonRange, Tabs, teamLabel, usr } from "@/components/plain";
+import { Avatar, RatingBadge, seasonRange, Tabs, teamLabel, TournamentLink, usr } from "@/components/plain";
 import { entityLabel } from "@/lib/queries/common";
 import { detailSnapshotId, eventBreakdown, history, schoolProfile } from "@/lib/queries/profiles";
 
@@ -46,11 +46,6 @@ export default async function SchoolPage(props: PageProps<"/schools/[slug]">) {
                   Div {x.division} {x.season - 1}-{String(x.season).slice(2)}
                 </Link>
               ))}
-              {chosen ? (
-                <Link className="chip" href={`/compare?view=school&div=${chosen.division}&season=${chosen.season}&ids=${encodeURIComponent(id)}`}>
-                  Compare
-                </Link>
-              ) : null}
             </div>
           </div>
           <RatingBadge
@@ -121,7 +116,7 @@ export default async function SchoolPage(props: PageProps<"/schools/[slug]">) {
             {p.appearances.map((a) => (
               <li key={String(a.id)} className="row">
                 <span className="who">
-                  <Link href={`/tournaments/${a.id}`}>{String(a.name)}</Link>
+                  <TournamentLink url={String(a.result_url)} name={String(a.name)} />
                   <div className="sub">
                     {String(a.end_date)} · Division {String(a.division)} · {String(a.level)}
                   </div>

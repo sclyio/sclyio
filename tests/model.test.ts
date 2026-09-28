@@ -11,7 +11,7 @@ import {
   observationWeight,
   seasonWeight,
   recencyWeight,
-  tournamentStrength,
+  tournamentCompetitiveness,
   ratingStatus,
   type PoolObservation,
 } from "../src/lib/rating/model";
@@ -122,31 +122,48 @@ describe("weights, recency, and leakage", () => {
     expect(recencyWeight({ endDate: "2025-05-24", defSeason: 2025 }, ctx, p)).toBe(1);
     expect(recencyWeight({ endDate: "2024-10-12", defSeason: 2025 }, ctx, p)).toBeLessThan(0.5);
   });
-  it("stronger tournaments (larger field offsets) weigh more", () => {
-    const fields = new Map([["nats:e1", "nats"], ["nats:e2", "nats"], ["local:e1", "local"]]);
-    const s = tournamentStrength(
-      [
-        { fieldId: "nats:e1", k: 1.5, weight: 2, n: 50 },
-        { fieldId: "nats:e2", k: 1.7, weight: 2, n: 50 },
-        { fieldId: "local:e1", k: -0.2, weight: 1, n: 20 },
-      ],
-      fields,
+  it("more and stronger teams make a tournament more competitive", () => {
+    const z = new Map<string, number>([
+      ["top1", 3], ["top2", 3], ["top3", 2.8], ["mid1", 0.5], ["mid2", 0.2], ["weak1", -1], ["weak2", -1.2],
+    ]);
+    const c = tournamentCompetitiveness(
+      new Map([
+        ["nats", new Set(["top1", "top2", "top3", "mid1"])],
+        ["mit", new Set(["top1", "top3", "mid1", "mid2"])],
+        ["local", new Set(["top2", "mid2", "weak1", "weak2"])],
+        ["weak", new Set(["weak1", "weak2"])],
+      ]),
+      (id) => z.get(id),
       p,
     );
-    expect(s.get("nats")).toBeCloseTo(Math.exp(p.strengthExponent * 1.6), 10);
-    expect(s.get("nats")! / s.get("local")!).toBeCloseTo(Math.exp(1.8 * p.strengthExponent), 10);
-    const ctx = { asOf: "2026-05-24", strength: s };
-    const o = { defSeason: 2026, nSchools: 30, format: "in-person", endDate: "2026-05-23" };
-    expect(observationWeight({ ...o, tournamentId: "nats" }, 2026, p, ctx)).toBeGreaterThan(
+    expect(c.get("nats")!).toBeGreaterThan(c.get("mit")!);
+    expect(c.get("mit")!).toBeGreaterThan(c.get("local")!);
+    expect(c.get("local")!).toBeGreaterThan(c.get("weak")!);
+    expect(c.get("weak")!).toBeGreaterThanOrEqual(1);
+    const ctx = { asOf: "2026-05-24", strength: c };
+    const o = { defSeason: 2026, nSchools: 30, format: "in-person", level: "Invitational", endDate: "2026-02-01" };
+    expect(observationWeight({ ...o, tournamentId: "mit" }, 2026, p, ctx)).toBeGreaterThan(
       observationWeight({ ...o, tournamentId: "local" }, 2026, p, ctx),
     );
+  });
+  it("weighs levels Invitational < Regionals < States < Nationals and discounts early invitationals", () => {
+    const w = (level: string, endDate = "2026-02-01") =>
+      observationWeight({ defSeason: 2026, nSchools: 30, format: "in-person", level, endDate }, 2026, p);
+    expect(w("Invitational")).toBeLessThan(w("Regionals"));
+    expect(w("Regionals")).toBeLessThan(w("States"));
+    expect(w("States")).toBeLessThan(w("Nationals"));
+    expect(w("Invitational", "2025-10-11")).toBeLessThan(w("Invitational", "2025-12-06"));
+    expect(w("Invitational", "2025-12-06")).toBeLessThan(w("Invitational", "2026-01-24"));
+    // The early-season discount applies to invitationals only.
+    expect(w("Regionals", "2025-11-15")).toBe(w("Regionals", "2026-02-01"));
   });
   it("larger fields weigh more (quarter power) and online is discounted", () => {
     const small = observationWeight({ defSeason: 2026, nSchools: 16, format: "in-person" }, 2026, p);
     const big = observationWeight({ defSeason: 2026, nSchools: 81, format: "in-person" }, 2026, p);
     expect(big / small).toBeCloseTo(1.5, 10);
     const online = observationWeight({ defSeason: 2026, nSchools: 16, format: "online" }, 2026, p);
-    expect(online / small).toBeCloseTo(0.5, 12);
+    expect(online / small).toBeCloseTo(p.onlineWeight, 12);
+    expect(p.onlineWeight).toBeLessThan(1);
     const unknown = observationWeight({ defSeason: 2026, nSchools: 16, format: "unknown" }, 2026, p);
     expect(unknown).toBeCloseTo(small, 12);
   });
