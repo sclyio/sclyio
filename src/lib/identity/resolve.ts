@@ -1,5 +1,5 @@
 import type { Mappings } from "./mappings";
-import { normText, schoolIdFromKey, schoolMatchKey, teamIdOf } from "./normalize";
+import { schoolIdFromKey, schoolMatchKey, teamIdOf } from "./normalize";
 
 export interface RawEntry {
   tournamentId: string;
@@ -159,5 +159,3 @@ export function resolveIdentities(raw: RawEntry[], mappings: Mappings): Resoluti
   }
   return { schools, teams, entries };
 }
-
-export const _test = { normText };

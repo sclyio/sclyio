@@ -87,10 +87,7 @@ export function postImport(db: DB, mappings: Mappings, preliminary: Set<string>,
         new Map((JSON.parse(m.events) as string[]).map((n) => [normText(n), n])),
       );
     }
-    const equivalence = new Map<string, { id: string; basis: string }>();
-    for (const g of mappings.eventEquivalence.groups) {
-      for (const mem of g.members) equivalence.set(`${g.division}|${mem.season}|${normText(mem.event)}`, { id: g.id, basis: g.basis });
-    }
+    const equivalence = equivalenceChains(mappings.eventEquivalence.groups);
     s.prepare(`DELETE FROM event_definitions`).run();
     const defs = new Map<string, { official: boolean }>();
     const insDef = s.prepare(
@@ -144,13 +141,13 @@ export function postImport(db: DB, mappings: Mappings, preliminary: Set<string>,
       } else if (te.canceled) {
         eligible = false;
         note = "Event canceled";
+      } else if (te.trial || te.trialed) {
+        // Trial events never affect ratings, even when the event is official nationally.
+        eligible = false;
+        note = te.trial ? "Trial event at this tournament (not rated)" : "Event was trialed at this tournament (not rated)";
       } else if (te.placed < 2) {
         eligible = false;
         note = "Fewer than two valid placements";
-      } else if (te.trial || te.trialed) {
-        note = te.trial
-          ? "Held as a trial event; counted because it is an official national event this season with valid placements"
-          : "Official event marked as trialed; counted with valid placements (flagged)";
       }
       updTe.run(defId, eligible ? 1 : 0, note, te.id);
     }
@@ -251,4 +248,40 @@ export function postImport(db: DB, mappings: Mappings, preliminary: Set<string>,
   );
   log(`post-import: ${changedTournaments} tournaments with changed model observations; identity ${JSON.stringify(identity)}`);
   return { earliestAffectedDate: earliest as string | null, identity, changedTournaments };
+}
+
+/**
+ * Merge equivalence groups that share an event-season into chains, so
+ * consecutive pairs (2023-2024, 2024-2025, ...) link every season of an
+ * event, not just the last pair it appears in. Returns
+ * "division|season|normalized event" -> chain id (the earliest group's id).
+ */
+export function equivalenceChains(
+  groups: { id: string; division: string; basis: string; members: { season: number; event: string }[] }[],
+): Map<string, { id: string; basis: string }> {
+  const parent = groups.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const owner = new Map<string, number>();
+  groups.forEach((g, i) => {
+    for (const m of g.members) {
+      const key = `${g.division}|${m.season}|${normText(m.event)}`;
+      const j = owner.get(key);
+      if (j === undefined) owner.set(key, i);
+      else parent[find(i)] = find(j);
+    }
+  });
+  // Chain id: the member group with the earliest season (ties by id).
+  const first = (g: (typeof groups)[number]) => Math.min(...g.members.map((m) => m.season));
+  const chainId = new Map<number, number>();
+  groups.forEach((g, i) => {
+    const r = find(i);
+    const cur = chainId.get(r);
+    if (cur === undefined || first(g) < first(groups[cur]) || (first(g) === first(groups[cur]) && g.id < groups[cur].id)) chainId.set(r, i);
+  });
+  const out = new Map<string, { id: string; basis: string }>();
+  for (const [key, i] of owner) {
+    const g = groups[chainId.get(find(i))!];
+    out.set(key, { id: g.id, basis: g.basis });
+  }
+  return out;
 }

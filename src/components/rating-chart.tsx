@@ -1,48 +1,47 @@
 /**
- * Season rating chart (server-rendered SVG, no client JavaScript): USR and
- * Season Trend. The x-axis always spans the season: September 1 to June 30.
+ * Rating chart (server-rendered SVG, no client JavaScript): USR and Season
+ * Trend over up to the last 4 seasons, drawn as one continuous line. Each
+ * season's axis section spans September 1 to June 30.
  */
 
-const MONTHS = ["Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun"];
 const USR_COLOR = "#1f6feb";
 const TREND_COLOR = "#e8710a";
 
 export interface ChartPoint {
   date: string; // ISO date of the refit
+  season: number;
   usr: number;
   trend: number | null;
   newResults: boolean;
 }
 
-export function RatingChart({ points, season, label }: { points: ChartPoint[]; season: number; label: string }) {
+const t = (d: string) => Date.parse(`${d}T00:00:00Z`);
+
+export function RatingChart({ points, seasons, label }: { points: ChartPoint[]; seasons: number[]; label: string }) {
   const W = 760;
   const H = 240;
   const pad = { l: 42, r: 16, t: 14, b: 28 };
-  const start = Date.parse(`${season - 1}-09-01T00:00:00Z`);
-  const end = Date.parse(`${season}-06-30T00:00:00Z`);
-  const inSeason = points.filter((p) => {
-    const t = Date.parse(`${p.date}T00:00:00Z`);
-    return t >= start && t <= end;
-  });
-  if (inSeason.length === 0) return <p className="muted">No ratings this season yet.</p>;
+  const shown = [...seasons].sort((a, b) => a - b);
+  const inRange = points.filter((p) => shown.includes(p.season));
+  if (!shown.length || inRange.length === 0) return <p className="muted">No ratings yet.</p>;
+  const start = t(`${shown[0] - 1}-09-01`);
+  const end = t(`${shown[shown.length - 1]}-06-30`);
 
-  const trend = inSeason.filter((p) => p.trend !== null) as (ChartPoint & { trend: number })[];
-  const vals = [...inSeason.map((p) => p.usr), ...trend.map((p) => p.trend)];
+  const vals = [...inRange.map((p) => p.usr), ...inRange.flatMap((p) => (p.trend === null ? [] : [p.trend]))];
   let lo = Math.floor(Math.min(...vals) - 0.5);
   let hi = Math.ceil(Math.max(...vals) + 0.5);
   lo = Math.max(1, lo);
   hi = Math.min(17, Math.max(hi, lo + 2));
-  const x = (d: string) => pad.l + ((Date.parse(`${d}T00:00:00Z`) - start) / (end - start)) * (W - pad.l - pad.r);
+  const x = (d: string) => pad.l + ((t(d) - start) / (end - start)) * (W - pad.l - pad.r);
   const y = (v: number) => pad.t + ((hi - v) / (hi - lo)) * (H - pad.t - pad.b);
   const line = (pts: { date: string; v: number }[]) =>
     pts.map((p, i) => `${i ? "L" : "M"}${x(p.date).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
-  const usrPath = line(inSeason.map((p) => ({ date: p.date, v: p.usr })));
-  const trendPath = line(trend.map((p) => ({ date: p.date, v: p.trend })));
+  const trendPts = inRange.filter((p) => p.trend !== null).map((p) => ({ date: p.date, v: p.trend! }));
   const yTicks: number[] = [];
   const step = hi - lo > 6 ? 2 : 1;
   for (let v = Math.ceil(lo); v <= hi; v += step) yTicks.push(v);
-  const first = inSeason[0];
-  const last = inSeason[inSeason.length - 1];
+  const first = inRange[0];
+  const last = inRange[inRange.length - 1];
   const summary =
     `${label}: USR ${first.usr.toFixed(2)} on ${first.date} to ${last.usr.toFixed(2)} on ${last.date}` +
     (last.trend !== null ? `; Season Trend ${last.trend.toFixed(2)}.` : ".");
@@ -66,24 +65,38 @@ export function RatingChart({ points, season, label }: { points: ChartPoint[]; s
             </text>
           </g>
         ))}
-        {MONTHS.map((m, i) => {
-          const yr = i < 4 ? season - 1 : season;
-          const mm = ((i + 8) % 12) + 1;
-          const d = `${yr}-${String(mm).padStart(2, "0")}-01`;
+        {shown.map((s) => {
+          const x0 = x(`${s - 1}-09-01`);
+          const x1 = x(`${s}-06-30`);
           return (
-            <text key={m} x={x(d)} y={H - 8} fontSize="11" fill="#6b7686">
-              {m}
-            </text>
+            <g key={s}>
+              {shown.length > 1 ? <line x1={x0} x2={x0} y1={pad.t} y2={H - pad.b} stroke="#e3e7ee" /> : null}
+              <text x={(x0 + x1) / 2} y={H - 8} textAnchor="middle" fontSize="11" fill="#6b7686">
+                {shown.length > 1 ? `${s - 1}-${String(s).slice(2)}` : ""}
+              </text>
+            </g>
           );
         })}
-        {trend.length ? (
-          <path d={trendPath} fill="none" stroke={TREND_COLOR} strokeWidth="2" strokeLinejoin="round" strokeDasharray="6 4" />
+        {shown.length === 1
+          ? ["Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun"].map((m, i) => {
+              const s = shown[0];
+              const yr = i < 4 ? s - 1 : s;
+              const mm = ((i + 8) % 12) + 1;
+              return (
+                <text key={m} x={x(`${yr}-${String(mm).padStart(2, "0")}-01`)} y={H - 8} fontSize="11" fill="#6b7686">
+                  {m}
+                </text>
+              );
+            })
+          : null}
+        {trendPts.length ? (
+          <path d={line(trendPts)} fill="none" stroke={TREND_COLOR} strokeWidth="2" strokeLinejoin="round" strokeDasharray="6 4" />
         ) : null}
-        <path d={usrPath} fill="none" stroke={USR_COLOR} strokeWidth="2.5" strokeLinejoin="round" />
-        {inSeason
+        <path d={line(inRange.map((p) => ({ date: p.date, v: p.usr })))} fill="none" stroke={USR_COLOR} strokeWidth="2.5" strokeLinejoin="round" />
+        {inRange
           .filter((p) => p.newResults)
           .map((p) => (
-            <circle key={p.date} cx={x(p.date)} cy={y(p.usr)} r="4" fill={USR_COLOR} stroke="#fff" strokeWidth="2" />
+            <circle key={p.date} cx={x(p.date)} cy={y(p.usr)} r={shown.length > 1 ? 3 : 4} fill={USR_COLOR} stroke="#fff" strokeWidth="1.5" />
           ))}
       </svg>
     </>

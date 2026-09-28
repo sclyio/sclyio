@@ -6,6 +6,7 @@ import {
   attributeChange,
   computeSnapshot,
   ratingStatus,
+  seasonEndsOf,
   type PoolObservation,
   type SnapshotResult,
 } from "./model";
@@ -130,6 +131,7 @@ export function rebuildRatings(opts: RebuildOptions) {
     for (const view of ["team", "school"] as RatingView[]) {
       for (const division of ["B", "C"]) {
         const byDef = loadObservations(db, division, view);
+        const seasonEnds = seasonEndsOf(byDef);
         for (const pool of pools.filter((x) => x.division === division)) {
           const M = pool.officialDefs.length;
           let prev: SnapshotResult | null = null;
@@ -146,6 +148,7 @@ export function rebuildRatings(opts: RebuildOptions) {
               poolDefs: pool.poolDefs,
               observationsByDef: byDef,
               params: p,
+              seasonEnds,
             });
             const failed = snap.diagnostics.filter((d) => !d.converged);
             if (failed.length) {
@@ -323,12 +326,13 @@ function writeSnapshot(a: {
     belowTournamentCount: withStatus.filter((r) => r.o.tournaments < p.minTournaments).length,
     priorSeasonOnly: snap.overall.size - rows.length,
   };
+  // New results = tournaments completed since the previous refit (or since the
+  // season began, for its first refit); earlier seasons' results are not new.
+  const since = prev?.asOf ?? `${pool.season - 1}-07-31`;
   const newTournaments = (entityId: string) => {
     const set = new Set<string>();
     for (const st of snap.events.values()) {
-      const before = prev?.events.get(st.eventDefId)?.own.get(entityId);
-      const prevFields = new Set((before ?? []).map((o) => o.fieldId));
-      for (const o of st.own.get(entityId) ?? []) if (!prevFields.has(o.fieldId)) set.add(o.tournamentId);
+      for (const o of st.own.get(entityId) ?? []) if (o.endDate > since) set.add(o.tournamentId);
     }
     return [...set];
   };

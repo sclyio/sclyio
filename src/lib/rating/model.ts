@@ -96,8 +96,72 @@ export function seasonWeight(defSeason: number, season: number, p: ModelParams):
   return age >= 0 && age < p.seasonWeights.length ? p.seasonWeights[age] : 0;
 }
 
-export function observationWeight(o: { defSeason: number; nSchools: number; format: string }, season: number, p: ModelParams) {
-  return seasonWeight(o.defSeason, season, p) * Math.pow(o.nSchools, p.fieldSizeExponent) * formatWeight(o.format, p);
+/** What an observation's weight depends on beyond the observation itself. */
+export interface WeightContext {
+  asOf: string;
+  /** Last result date of each season: recency is measured back from min(asOf, season end). */
+  seasonEnds?: Map<number, string>;
+  /** Tournament id -> strength multiplier (1 when absent). */
+  strength?: Map<string, number>;
+}
+
+/**
+ * Within-season recency: exp(-days / decayDays), counted back from the as-of
+ * date, or from the season's last result for earlier seasons (so a prior
+ * season's Nationals weighs 1 and its October invitationals less).
+ */
+export function recencyWeight(o: { endDate: string; defSeason: number }, ctx: WeightContext, p: ModelParams): number {
+  const end = ctx.seasonEnds?.get(o.defSeason);
+  const ref = end && end < ctx.asOf ? end : ctx.asOf;
+  return Math.exp(-Math.max(0, daysBetween(o.endDate, ref)) / p.decayDays);
+}
+
+export function observationWeight(
+  o: { defSeason: number; nSchools: number; format: string; endDate?: string; tournamentId?: string },
+  season: number,
+  p: ModelParams,
+  ctx?: WeightContext,
+) {
+  let w = seasonWeight(o.defSeason, season, p) * Math.pow(o.nSchools, p.fieldSizeExponent) * formatWeight(o.format, p);
+  if (ctx && o.endDate) w *= recencyWeight({ endDate: o.endDate, defSeason: o.defSeason }, ctx, p);
+  if (ctx?.strength && o.tournamentId) w *= ctx.strength.get(o.tournamentId) ?? 1;
+  return w;
+}
+
+/** Last result date of each season in the observations. */
+export function seasonEndsOf(byDef: Map<string, PoolObservation[]>): Map<number, string> {
+  const out = new Map<number, string>();
+  for (const arr of byDef.values()) {
+    for (const o of arr) {
+      const cur = out.get(o.defSeason);
+      if (!cur || o.endDate > cur) out.set(o.defSeason, o.endDate);
+    }
+  }
+  return out;
+}
+
+/**
+ * Tournament strength multipliers from a fit: exp(strengthExponent x the
+ * tournament's mean field offset k), so results against stronger fields
+ * (larger k) weigh more.
+ */
+export function tournamentStrength(
+  fieldFits: SnapshotResult["fieldFits"],
+  fieldTournament: Map<string, string>,
+  p: ModelParams,
+): Map<string, number> {
+  const acc = new Map<string, { kw: number; w: number }>();
+  for (const f of fieldFits) {
+    const t = fieldTournament.get(f.fieldId);
+    if (!t) continue;
+    const a = acc.get(t) ?? { kw: 0, w: 0 };
+    a.kw += f.k * f.weight;
+    a.w += f.weight;
+    acc.set(t, a);
+  }
+  const out = new Map<string, number>();
+  for (const [t, a] of acc) out.set(t, Math.exp(p.strengthExponent * (a.w > 0 ? a.kw / a.w : 0)));
+  return out;
 }
 
 /** Observations usable at asOf when rating `season`: completed by asOf, in one of the counted seasons. */
@@ -119,6 +183,7 @@ export function fitEventPool(
   season: number,
   p: ModelParams,
   view: RatingView,
+  ctx: WeightContext = { asOf },
 ): { state: EventFitState; ratings: EventRatingOut[]; diag: EventDiagnostics; fieldFits: SnapshotResult["fieldFits"] } {
   const obs = obsAll.filter((o) => inWindow(o, asOf, season, p));
   const entityIdx = new Map<string, number>();
@@ -139,7 +204,7 @@ export function fitEventPool(
       fieldIdx.set(o.fieldId, f);
       fieldIds.push(o.fieldId);
     }
-    packed.push({ entity: e, field: f, x: o.x, w: observationWeight(o, season, p) });
+    packed.push({ entity: e, field: f, x: o.x, w: observationWeight(o, season, p, ctx) });
   }
   // Normalize weights to mean 1 within this fitted event pool.
   if (packed.length) {
@@ -230,8 +295,12 @@ export function fitEventPool(
 /**
  * Fit every official event of the target season and aggregate overall
  * ratings for entities with at least one current-season observation. The
- * main rating uses the last seasons (season-weighted); the Season Trend
- * repeats the fit with the rated season's results only.
+ * main rating uses the last seasons (season- and recency-weighted); the
+ * Season Trend repeats the fit with the rated season's results only.
+ *
+ * Tournament strength needs fitted field offsets, so the main fit runs
+ * twice: once to measure each tournament's strength, then again with the
+ * strength multipliers applied (skipped when strengthExponent is 0).
  */
 export function computeSnapshot(args: {
   asOf: string;
@@ -241,8 +310,11 @@ export function computeSnapshot(args: {
   poolDefs: Map<string, string[]>; // target def -> defs contributing (equivalents)
   observationsByDef: Map<string, PoolObservation[]>;
   params: ModelParams;
+  /** Precomputed seasonEndsOf(observationsByDef); computed here when omitted. */
+  seasonEnds?: Map<number, string>;
 }): SnapshotResult {
   const { asOf, season, view, officialEventDefs, params: p } = args;
+  const seasonEnds = args.seasonEnds ?? seasonEndsOf(args.observationsByDef);
   const M = officialEventDefs.length;
   const events = new Map<string, EventFitState>();
   const eventRatings: EventRatingOut[] = [];
@@ -254,20 +326,36 @@ export function computeSnapshot(args: {
     { tournaments: Set<string>; obs: number; last: string | null; current: boolean; observed: Set<string> }
   >();
 
+  const obsByDef = new Map<string, PoolObservation[]>();
+  const fieldTournament = new Map<string, string>();
   for (const def of officialEventDefs) {
-    const contributing = args.poolDefs.get(def) ?? [def];
     const obs: PoolObservation[] = [];
-    for (const d of contributing) {
-      for (const o of args.observationsByDef.get(d) ?? []) if (inWindow(o, asOf, season, p)) obs.push(o);
+    for (const d of args.poolDefs.get(def) ?? [def]) {
+      for (const o of args.observationsByDef.get(d) ?? []) {
+        if (!inWindow(o, asOf, season, p)) continue;
+        obs.push(o);
+        fieldTournament.set(o.fieldId, o.tournamentId);
+      }
     }
-    const r = fitEventPool(def, obs, asOf, season, p, view);
+    obsByDef.set(def, obs);
+  }
+  const ctx: WeightContext = { asOf, seasonEnds };
+  if (p.strengthExponent !== 0) {
+    const first: SnapshotResult["fieldFits"] = [];
+    for (const def of officialEventDefs) first.push(...fitEventPool(def, obsByDef.get(def)!, asOf, season, p, view, ctx).fieldFits);
+    ctx.strength = tournamentStrength(first, fieldTournament, p);
+  }
+
+  for (const def of officialEventDefs) {
+    const obs = obsByDef.get(def)!;
+    const r = fitEventPool(def, obs, asOf, season, p, view, ctx);
     events.set(def, r.state);
     eventRatings.push(...r.ratings);
     diagnostics.push(r.diag);
     fieldFits.push(...r.fieldFits);
     // Season Trend fit (skipped when every result is already from this season).
     const current = obs.filter((o) => o.defSeason === season);
-    trendStates.set(def, current.length === obs.length ? r.state : fitEventPool(def, current, asOf, season, p, view).state);
+    trendStates.set(def, current.length === obs.length ? r.state : fitEventPool(def, current, asOf, season, p, view, ctx).state);
     for (const o of obs) {
       let info = entityInfo.get(o.entityId);
       if (!info) {

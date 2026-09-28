@@ -100,11 +100,6 @@ export const entityLabel = cache(async (view: RatingView, id: string): Promise<E
     : null;
 });
 
-export const eventNames = cache(async (): Promise<Map<string, string>> => {
-  const rows = await all<{ id: string; name: string }>(`SELECT id, name FROM event_definitions`);
-  return new Map(rows.map((r) => [r.id, r.name]));
-});
-
 export const officialEvents = cache(
   async (division: string, season: number): Promise<{ id: string; name: string; equivalence_group: string | null }[]> =>
     all(`SELECT id, name, equivalence_group FROM event_definitions WHERE division = ? AND season = ? AND official = 1 ORDER BY name`, [

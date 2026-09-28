@@ -434,6 +434,18 @@ tr:last-child td {
 .badge.trend .badge-value {
   color: #b85400;
 }
+.season-row td {
+  background: var(--bg);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.load-more {
+  text-align: center;
+  margin: -4px 0 16px;
+}
 .season-head {
   margin: 20px 0 10px;
   color: var(--muted);

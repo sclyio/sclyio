@@ -1,9 +1,10 @@
 # Cross-season event equivalence (reviewed, version-controlled).
 #
-# Event definitions are scoped by division and season. A School Potential
-# fit may use the prior season's results for an event ONLY when both
-# seasons appear in the same group below. Events that rotated out are never
-# carried into a replacement event.
+# Event definitions are scoped by division and season. A rating fit may use
+# an earlier season's results for an event ONLY when the seasons are linked
+# below. Groups that share an event-season are chained at import, so
+# consecutive pairs link every season of an event. Events that rotated out
+# are never carried into a replacement event.
 #
 # Basis for the generated groups (2026-09-27): the event name appears in both
 # consecutive seasons of Duosmium's official national event lists

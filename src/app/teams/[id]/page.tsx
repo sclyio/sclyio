@@ -28,6 +28,12 @@ export default async function TeamPage(props: PageProps<"/teams/[id]">) {
   const seasons = [...new Set(apps.map((a) => a.season))].sort((a, b) => b - a);
   const season = seasons.includes(Number(sp.season)) ? Number(sp.season) : t.season!;
   const seasonHist = hist.filter((h) => h.season === season);
+  // Rating history: the chart covers the last 4 rated seasons; the table
+  // shows the latest season, plus one more per "Load more".
+  const ratedSeasons = [...new Set(hist.map((h) => h.season))].sort((a, b) => b - a);
+  const chartSeasons = ratedSeasons.filter((s) => s > (ratedSeasons[0] ?? 0) - 4);
+  const more = Math.max(0, Math.min(Number(sp.more) || 0, ratedSeasons.length));
+  const tableSeasons = ratedSeasons.slice(0, 1 + more);
   const latest = hist.length ? hist[hist.length - 1] : null;
   const [events, official] = await Promise.all([
     tab === "events" ? eventBreakdown("team", id, division, season, detailSnapshotId(seasonHist)) : Promise.resolve([]),
@@ -180,13 +186,24 @@ export default async function TeamPage(props: PageProps<"/teams/[id]">) {
         </>
       ) : (
         <>
-          {seasonChips("history")}
           <section className="card">
-            <h2>{seasonLabel(season)} season</h2>
+            <h2>
+              {chartSeasons.length > 1
+                ? `${seasonLabel(chartSeasons[chartSeasons.length - 1])} to ${seasonLabel(chartSeasons[0])}`
+                : chartSeasons.length
+                  ? `${seasonLabel(chartSeasons[0])} season`
+                  : "Rating history"}
+            </h2>
             <RatingChart
-              season={season}
+              seasons={chartSeasons}
               label={name}
-              points={seasonHist.map((h) => ({ date: h.asOf, usr: h.usr!, trend: h.trendUsr, newResults: Boolean(h.explain?.t?.length) }))}
+              points={hist.map((h) => ({
+                date: h.asOf,
+                season: h.season,
+                usr: h.usr!,
+                trend: h.trendUsr,
+                newResults: Boolean(h.explain?.t?.length),
+              }))}
             />
           </section>
           <section className="card flush scroll">
@@ -200,24 +217,41 @@ export default async function TeamPage(props: PageProps<"/teams/[id]">) {
                   <th>New results</th>
                 </tr>
               </thead>
-              <tbody>
-                {[...seasonHist].reverse().map((h, i, arr) => {
-                  const prev = arr[i + 1];
-                  return (
-                    <tr key={h.asOf}>
-                      <td>{h.asOf}</td>
-                      <td className="n">
-                        <span className="pill">{usr(h.usr)}</span>
-                      </td>
-                      <td className="n">{prev ? <Change v={(h.usr ?? 0) - (prev.usr ?? 0)} /> : <span className="muted">first</span>}</td>
-                      <td className="n">{usr(h.trendUsr)}</td>
-                      <td className="muted">{(h.explain?.t ?? []).map((x) => names.get(x) ?? x).join(", ")}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
+              {tableSeasons.map((s) => (
+                <tbody key={s}>
+                  <tr className="season-row">
+                    <td colSpan={5}>{seasonLabel(s)}</td>
+                  </tr>
+                  {hist
+                    .filter((h) => h.season === s)
+                    .reverse()
+                    .map((h, i, arr) => {
+                      const prev = arr[i + 1];
+                      return (
+                        <tr key={h.asOf}>
+                          <td>{h.asOf}</td>
+                          <td className="n">
+                            <span className="pill">{usr(h.usr)}</span>
+                          </td>
+                          <td className="n">
+                            {prev ? <Change v={(h.usr ?? 0) - (prev.usr ?? 0)} /> : <span className="muted">season start</span>}
+                          </td>
+                          <td className="n">{usr(h.trendUsr)}</td>
+                          <td className="muted">{(h.explain?.t ?? []).map((x) => names.get(x) ?? x).join(", ")}</td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              ))}
             </table>
           </section>
+          {tableSeasons.length < ratedSeasons.length ? (
+            <div className="load-more">
+              <Link className="chip" href={`${base}?tab=history&more=${more + 1}`} scroll={false}>
+                Load more
+              </Link>
+            </div>
+          ) : null}
         </>
       )}
     </>

@@ -3,7 +3,7 @@ import { DEFAULT_PARAMS, type ModelParams, type RatingView } from "./config";
 import { EloV1, type EloTournament } from "./elo-v1";
 import { loadObservations, planPools, sundayOnOrAfter } from "./engine";
 import { addDays, spearman } from "./math";
-import { computeSnapshot, type PoolObservation, type SnapshotResult } from "./model";
+import { computeSnapshot, seasonEndsOf, type PoolObservation, type SnapshotResult } from "./model";
 
 /**
  * Chronological, tournament-level backtest. For each target tournament the
@@ -71,6 +71,10 @@ export function defaultVariants(): Variant[] {
     { name: "v2-seasons-flat", params: { ...p, seasonWeights: [1, 1, 1, 1] } },
     { name: "v2-fieldsize-0", params: { ...p, fieldSizeExponent: 0 } },
     { name: "v2-2-seasons", params: { ...p, seasonWeights: [1, 0.5] } },
+    { name: "v2-no-strength-weight (v2-exp.6-like)", params: { ...p, strengthExponent: 0 } },
+    { name: "v2-strength-0.5", params: { ...p, strengthExponent: 0.5 } },
+    { name: "v2-no-recency", params: { ...p, decayDays: 1e9 } },
+    { name: "v2-decay-100", params: { ...p, decayDays: 100 } },
     { name: "v2-lambdaS-0.5", params: { ...p, lambdaS: 0.5 } },
     { name: "v2-lambdaS-2 (v2-exp.1)", params: { ...p, lambdaS: 2 } },
     { name: "v2-lambdaK-3", params: { ...p, lambdaK: 3 } },
@@ -95,6 +99,7 @@ export function runBacktest(db: DB, opts: { variants?: Variant[]; splits?: Split
   for (const division of ["B", "C"]) {
     for (const view of ["team", "school"] as RatingView[]) {
       const byDef = loadObservations(db, division, view);
+      const seasonEnds = seasonEndsOf(byDef);
       // Observations grouped by tournament event (targets).
       const byField = new Map<string, PoolObservation[]>();
       for (const arr of byDef.values()) {
@@ -169,6 +174,7 @@ export function runBacktest(db: DB, opts: { variants?: Variant[]; splits?: Split
                 poolDefs: pool.poolDefs,
                 observationsByDef: byDef,
                 params: variant.params,
+                seasonEnds,
               });
               snapCache.set(key, snap);
             }

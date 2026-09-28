@@ -25,4 +25,3 @@ export interface SourceAdapter {
 }
 
 export const DUOSMIUM_RESULTS_BASE = "https://www.duosmium.org/results/";
-export const DUOSMIUM_REPO = "https://github.com/Duosmium/duosmium";

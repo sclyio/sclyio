@@ -18,8 +18,13 @@
  * v2-exp.6: teams span seasons (Team 1 in 2000 = Team 1 in 2025). Ratings use
  * the last 4 seasons with season weights 1, 1/2, 1/4, 1/8 (replacing the
  * 400-day window and 200-day decay); Season Trend = current season only.
+ * v2-exp.7: within each season, later results weigh more (200-day decay back
+ * from the season's end or the as-of date), and results at stronger
+ * tournaments weigh more (exp of the tournament's mean field offset).
+ * Also: trial events are never rated, and cross-season event equivalence is
+ * chained (fixes prior seasons being dropped at the start of each season).
  */
-export const MODEL_VERSION = "v2-exp.6";
+export const MODEL_VERSION = "v2-exp.7";
 export const PARSER_VERSION = "duosmium-adapter/1.1.0";
 
 export interface ModelParams {
@@ -29,6 +34,14 @@ export interface ModelParams {
    * beyond the list do not count (length 4 = the last 4 seasons).
    */
   seasonWeights: number[];
+  /** Within-season recency decay: exp(-days / decayDays), days counted back from the season end or as-of date. */
+  decayDays: number;
+  /**
+   * Tournament strength weight: exp(strengthExponent x mean field offset k).
+   * k spans about -0.5 (weak local fields) to 1.6 (Nationals, MIT), so 1
+   * weighs Nationals about 4.5x a typical invitational. 0 disables it.
+   */
+  strengthExponent: number;
   /** Exponent on unique eligible schools in the event field. */
   fieldSizeExponent: number;
   /** format_weight for explicitly online / satellite tournaments. */
@@ -65,6 +78,8 @@ export interface ModelParams {
 
 export const DEFAULT_PARAMS: ModelParams = {
   seasonWeights: [1, 0.5, 0.25, 0.125],
+  decayDays: 200,
+  strengthExponent: 1,
   fieldSizeExponent: 0.25,
   onlineWeight: 0.5,
   unknownFormatWeight: 1,
@@ -90,11 +105,3 @@ export const ELO_V1 = {
 } as const;
 
 export type RatingView = "team" | "school";
-export type Division = "B" | "C";
-export const DIVISIONS: Division[] = ["B", "C"];
-export const VIEWS: RatingView[] = ["team", "school"];
-
-export const VIEW_LABEL: Record<RatingView, string> = {
-  team: "Team Performance",
-  school: "School Potential",
-};

@@ -40,11 +40,6 @@ export function schoolIdFromKey(key: string): string {
   return [name, city, state.toLowerCase()].filter(Boolean).join(" ").replace(/ /g, "-");
 }
 
-/** Team designation (suffix) normalization: "Team A." and "team a" differ from "A". */
-export function normDesignation(s: string | null | undefined): string {
-  return normText(s);
-}
-
 /** A team spans seasons: school + division + team number (e.g. "c-troy-high-school-fullerton-ca--team-1"). */
 export function teamIdOf(schoolId: string, division: string, designation: string): string {
   const d = designation ? designation.replace(/ /g, "-") : "unlabeled";

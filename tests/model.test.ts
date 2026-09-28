@@ -10,6 +10,8 @@ import {
   inWindow,
   observationWeight,
   seasonWeight,
+  recencyWeight,
+  tournamentStrength,
   ratingStatus,
   type PoolObservation,
 } from "../src/lib/rating/model";
@@ -109,6 +111,35 @@ describe("weights, recency, and leakage", () => {
     const cur = observationWeight({ defSeason: 2026, nSchools: 20, format: "in-person" }, 2026, p);
     const prev = observationWeight({ defSeason: 2025, nSchools: 20, format: "in-person" }, 2026, p);
     expect(prev / cur).toBeCloseTo(0.5, 12);
+  });
+  it("later results in a season weigh more; earlier seasons count back from their own end", () => {
+    const ctx = { asOf: "2026-03-01", seasonEnds: new Map([[2025, "2025-05-24"], [2026, "2026-05-23"]]) };
+    const late = recencyWeight({ endDate: "2026-02-28", defSeason: 2026 }, ctx, p);
+    const early = recencyWeight({ endDate: "2025-10-11", defSeason: 2026 }, ctx, p);
+    expect(late).toBeGreaterThan(early);
+    expect(early / late).toBeCloseTo(Math.exp(-140 / p.decayDays), 10);
+    // Last season's Nationals is at full recency; its October invitational is not.
+    expect(recencyWeight({ endDate: "2025-05-24", defSeason: 2025 }, ctx, p)).toBe(1);
+    expect(recencyWeight({ endDate: "2024-10-12", defSeason: 2025 }, ctx, p)).toBeLessThan(0.5);
+  });
+  it("stronger tournaments (larger field offsets) weigh more", () => {
+    const fields = new Map([["nats:e1", "nats"], ["nats:e2", "nats"], ["local:e1", "local"]]);
+    const s = tournamentStrength(
+      [
+        { fieldId: "nats:e1", k: 1.5, weight: 2, n: 50 },
+        { fieldId: "nats:e2", k: 1.7, weight: 2, n: 50 },
+        { fieldId: "local:e1", k: -0.2, weight: 1, n: 20 },
+      ],
+      fields,
+      p,
+    );
+    expect(s.get("nats")).toBeCloseTo(Math.exp(p.strengthExponent * 1.6), 10);
+    expect(s.get("nats")! / s.get("local")!).toBeCloseTo(Math.exp(1.8 * p.strengthExponent), 10);
+    const ctx = { asOf: "2026-05-24", strength: s };
+    const o = { defSeason: 2026, nSchools: 30, format: "in-person", endDate: "2026-05-23" };
+    expect(observationWeight({ ...o, tournamentId: "nats" }, 2026, p, ctx)).toBeGreaterThan(
+      observationWeight({ ...o, tournamentId: "local" }, 2026, p, ctx),
+    );
   });
   it("larger fields weigh more (quarter power) and online is discounted", () => {
     const small = observationWeight({ defSeason: 2026, nSchools: 16, format: "in-person" }, 2026, p);

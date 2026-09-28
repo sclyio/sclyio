@@ -321,16 +321,6 @@ export async function team(id: string): Promise<(EntityLabel & { mappingNote: st
   return { ...l, mappingNote: r?.mapping_note ?? null };
 }
 
-export async function correctionsFor(tournamentIds: string[]) {
-  if (!tournamentIds.length) return [];
-  const ph = tournamentIds.map(() => "?").join(",");
-  return all<{ file_id: string; change: string; detail: string | null; started_at: string }>(
-    `SELECT c.file_id, c.change, c.detail, r.started_at FROM import_changes c JOIN import_runs r ON r.id = c.run_id
-     WHERE c.file_id IN (${ph}) AND c.change IN ('changed','removed') ORDER BY r.started_at DESC`,
-    tournamentIds,
-  );
-}
-
 type LatestRating = { usr: number; status: string; national_rank: number | null; comparable_events: number; as_of: string; official_events: number };
 
 export async function schoolProfile(id: string) {

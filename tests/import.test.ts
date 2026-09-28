@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { emptyMappings } from "../src/lib/identity/mappings";
 import { schoolMatchKey } from "../src/lib/identity/normalize";
 import { resolveIdentities, type RawEntry } from "../src/lib/identity/resolve";
+import { equivalenceChains } from "../src/lib/import/post-import";
 import { parseSciolyff } from "../src/lib/source/duosmium-parse";
 import { importAll, q, q1, sciolyff, straightPlacings, SyntheticSource, tempDb } from "./helpers";
 
@@ -166,7 +167,7 @@ describe("import pipeline (synthetic fixtures)", () => {
     expect(an[3].entity_id).toMatch(/dogwood/);
   });
 
-  it("does not penalize non-participation in trial events", async () => {
+  it("trial events produce no observations at all (no penalty, no placings)", async () => {
     const src = new SyntheticSource({}, OFFICIAL);
     const events = [{ name: "Anatomy and Physiology" }, { name: "Codebusters", trial: true }, { name: "Circuit Lab" }];
     const placings = straightPlacings([1, 2, 3], ["Anatomy and Physiology", "Circuit Lab"]).concat([
@@ -188,8 +189,8 @@ describe("import pipeline (synthetic fixtures)", () => {
     );
     const db = tempDb();
     await importAll(db, src);
-    const cb = q<{ n: number }>(db, "SELECT n FROM observations WHERE view='team' AND tournament_event_id LIKE '%:codebusters'");
-    expect(cb.map((r) => r.n)).toEqual([2, 2]);
+    const cb = q<{ n: number }>(db, "SELECT n FROM observations WHERE tournament_event_id LIKE '%:codebusters'");
+    expect(cb).toEqual([]);
   });
 
   it("uses midranks for official ties after exclusions and preserves the tie flag", async () => {
@@ -240,7 +241,7 @@ describe("import pipeline (synthetic fixtures)", () => {
     expect(rows[2].model_rank).toBe(3); // Cedar: official 4th -> re-ranked 3rd
   });
 
-  it("excludes unrelated trial events but counts an official event held as a trial", async () => {
+  it("excludes trial events from ratings, even an official event held as a trial", async () => {
     const src = new SyntheticSource({}, OFFICIAL);
     const events = [
       { name: "Anatomy and Physiology" },
@@ -258,7 +259,7 @@ describe("import pipeline (synthetic fixtures)", () => {
       db,
       "SELECT name, model_eligible, model_note FROM tournament_events ORDER BY ordinal",
     );
-    expect(te.find((e) => e.name === "Codebusters")!.model_eligible).toBe(1);
+    expect(te.find((e) => e.name === "Codebusters")!.model_eligible).toBe(0);
     expect(te.find((e) => e.name === "Codebusters")!.model_note).toMatch(/trial/i);
     expect(te.find((e) => e.name === "Pokemon Trivia")!.model_eligible).toBe(0);
     // Official display results for the unrelated trial event are still stored.
@@ -281,6 +282,26 @@ describe("import pipeline (synthetic fixtures)", () => {
     const byNumber = new Map(parsed.teams.map((t) => [t.number, t]));
     for (const r of ranked) expect(r.points).toBe(byNumber.get(r.number)!.points);
     expect(parsed.worstPlacingsDropped).toBe(5);
+  });
+});
+
+describe("event equivalence chains", () => {
+  it("links every season of an event through consecutive pairs, and nothing else", () => {
+    const pair = (a: number, name: string) => ({
+      id: `C-${name}-${a}-${a + 1}`,
+      division: "C",
+      basis: "test",
+      members: [
+        { season: a, event: name },
+        { season: a + 1, event: name },
+      ],
+    });
+    const m = equivalenceChains([pair(2023, "Anatomy"), pair(2024, "Anatomy"), pair(2025, "Anatomy"), pair(2025, "Optics")]);
+    const ids = [2023, 2024, 2025, 2026].map((y) => m.get(`C|${y}|anatomy`)!.id);
+    expect(new Set(ids).size).toBe(1);
+    expect(ids[0]).toBe("C-Anatomy-2023-2024");
+    expect(m.get("C|2025|optics")!.id).not.toBe(ids[0]);
+    expect(m.has("C|2024|optics")).toBe(false);
   });
 });
 
