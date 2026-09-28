@@ -13,8 +13,10 @@
  * top labeled team (identity rule change).
  * v2-exp.4: non-participation (PO / NS / DQ) in non-trial events ranks last;
  * full Duosmium history imported.
+ * v2-exp.5: teams numbered by finish within each tournament (Team 1 = the
+ * school's best-finishing entry), replacing source team labels.
  */
-export const MODEL_VERSION = "v2-exp.4";
+export const MODEL_VERSION = "v2-exp.5";
 export const PARSER_VERSION = "duosmium-adapter/1.1.0";
 
 export interface ModelParams {

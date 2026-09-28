@@ -59,11 +59,10 @@ src/lib/source     duosmium-parse.ts    src/lib/identity        src/lib/db      
 ## Identity rules (summary)
 
 - School = normalized name + city + state; same-named schools elsewhere are never auto-merged. Reviewed aliases: `data/mappings/school-aliases.yaml`.
-- Team-season = school + division + season + normalized label. Team numbers are tournament-local and never used.
-- An unlabeled entry joins the school's highest-ranking labeled team in that division and season (mean finishing percentile across its labeled entries; official placements only, not ratings), skipping teams already present at that tournament; several unlabeled entries at one tournament are assigned in finishing order. A school with no labeled team keeps an "unlabeled" team; anything else that cannot be placed is **unresolved** (shown in results and used for School Potential, excluded from Team Performance until mapped in `data/mappings/team-identity.yaml`).
+- Teams are numbered by finish: at each tournament, a school's entries are ordered by official overall rank; the best finisher is that school's **Team 1** for the season, the next **Team 2**, and so on. Source labels ("Gold", "A") and tournament team numbers are not used, so a school's results are not scattered across many one-off labels. Exhibition entries are ordered after competitive ones. A team therefore means "the school's N-th best entry at each tournament", not a fixed roster. Reviewed entries in `data/mappings/team-identity.yaml` can exclude a specific entry.
 - Supersede/exclude files, record formats, canceled events, and withdrawn entries in `data/mappings/source-overrides.yaml`. Cross-season event equivalence for School Potential: `data/mappings/event-equivalence.yaml`.
 
-## Rating model (v2-exp.4)
+## Rating model (v2-exp.5)
 
 Implements the SentientTree-informed experimental v2 exactly as specified. Parameters live in `src/lib/rating/config.ts`: 400-day window, 200-day decay, N^0.25, online weight 0.5, λk = 1, λs = **1**, M from the season's official event list, established = all M events comparable plus 3 or more tournaments. Also:
 
@@ -110,7 +109,7 @@ Validation = targets starting 2024-12-01 → 2026-01-31; test = 2026-02-01 onwar
 The web app only reads. Data jobs run in GitHub Actions (or any trusted machine) and publish finished datasets to [Turso](https://turso.tech) (hosted libSQL/SQLite):
 
 ```
-GitHub Actions (daily)                      Turso                         Vercel
+GitHub Actions (weekly)                      Turso                         Vercel
 sync → ratings:rebuild → test → db:export → new DB "sclyio-data-<time>-b<build>"
                                → publish:turso: upload → verify → flip pointer in "sclyio-meta"  ← app reads pointer (60 s cache)
 ```
@@ -133,7 +132,7 @@ sync → ratings:rebuild → test → db:export → new DB "sclyio-data-<time>-b
    This creates `sclyio-meta` on first run. Get its URL with `turso db show sclyio-meta --url`.
 6. Vercel → Project → Settings → Environment Variables (Production and Preview):
    `TURSO_META_URL` = the meta URL, `TURSO_READ_TOKEN` = the read-only group token, optionally `CORRECTIONS_URL`. Redeploy once.
-7. GitHub → repository Settings → Secrets and variables → Actions: secrets `TURSO_API_TOKEN`, `TURSO_ORG`; variable `TURSO_GROUP` if not `default`. The scheduled workflow `sync-and-rebuild` then keeps the site current daily. Run it manually once to confirm.
+7. GitHub → repository Settings → Secrets and variables → Actions: secrets `TURSO_API_TOKEN`, `TURSO_ORG`; variable `TURSO_GROUP` if not `default`. The scheduled workflow `sync-and-rebuild` then keeps the site current weekly (Mondays, after the weekend's tournaments). Run it manually once to confirm.
 
 Storage: two ~1.4 GB datasets plus the meta database; check that your Turso plan's storage allowance covers ~3 GB.
 

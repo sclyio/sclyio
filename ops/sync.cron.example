@@ -3,4 +3,4 @@
 # publishes atomically (one transaction flips the published build pointer).
 #
 # m  h  dom mon dow  command
-17   9  *   *   *    cd /srv/sclyio && npm run sync >> logs/sync.log 2>&1 && npm run ratings:rebuild >> logs/rebuild.log 2>&1
+17   9  *   *   1    cd /srv/sclyio && npm run sync >> logs/sync.log 2>&1 && npm run ratings:rebuild >> logs/rebuild.log 2>&1

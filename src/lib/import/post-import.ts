@@ -53,7 +53,7 @@ export function postImport(db: DB, mappings: Mappings, preliminary: Set<string>,
     const raw = s
       .prepare(
         `SELECT e.tournament_id AS tournamentId, e.number, e.raw_school AS school, e.raw_city AS city, e.raw_state AS state,
-                e.raw_suffix AS suffix, t.division, t.season, e.rank,
+                e.raw_suffix AS suffix, t.division, t.season, e.rank, e.exhibition,
                 (SELECT COUNT(*) FROM entries x WHERE x.tournament_id = e.tournament_id AND x.exhibition = 0) AS fieldSize
          FROM entries e JOIN tournaments t ON t.id = e.tournament_id`,
       )

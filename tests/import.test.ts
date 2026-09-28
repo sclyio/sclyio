@@ -286,6 +286,8 @@ describe("import pipeline (synthetic fixtures)", () => {
 
 describe("identity resolution", () => {
   const base: Omit<RawEntry, "number" | "school" | "suffix" | "tournamentId"> = { city: "Springfield", state: "ZZ", division: "C", season: 2026 };
+  const S = "Alder Ridge High School";
+
   it("does not merge same-named schools from different locations", () => {
     const r = resolveIdentities(
       [
@@ -298,80 +300,74 @@ describe("identity resolution", () => {
     expect(r.schools.size).toBe(3);
   });
 
-  it("keeps multiple teams from one school distinct, and team numbers are not identity", () => {
+  it("numbers a school's teams by finish at each tournament (Team 1 = best finisher)", () => {
     const r = resolveIdentities(
       [
-        { ...base, tournamentId: "t1", number: 1, school: "Alder Ridge High School", suffix: "Gold" },
-        { ...base, tournamentId: "t1", number: 2, school: "Alder Ridge High School", suffix: "Blue" },
-        { ...base, tournamentId: "t2", number: 2, school: "Alder Ridge High School", suffix: "Gold" },
-        { ...base, tournamentId: "t2", number: 1, school: "Alder Ridge High School", suffix: "Blue" },
-      ],
-      emptyMappings(),
-    );
-    expect(r.teamSeasons.size).toBe(2);
-    expect(r.entries.get("t1#1")!.teamSeasonId).toBe(r.entries.get("t2#2")!.teamSeasonId);
-  });
-
-  it("assigns unlabeled entries to the school's highest-ranking labeled team not already present", () => {
-    const S = "Alder Ridge High School";
-    const r = resolveIdentities(
-      [
-        // B finishes near the top of its fields; A near the bottom -> B is the top team.
-        { ...base, tournamentId: "t0", number: 1, school: S, suffix: "B", rank: 1, fieldSize: 10 },
-        { ...base, tournamentId: "t0", number: 2, school: S, suffix: "A", rank: 8, fieldSize: 10 },
-        // t1: B is present, so the unlabeled entry joins the next-best team (A).
-        { ...base, tournamentId: "t1", number: 1, school: S, suffix: null, rank: 3, fieldSize: 10 },
-        { ...base, tournamentId: "t1", number: 2, school: S, suffix: "B", rank: 1, fieldSize: 10 },
-        // t2: a sole unlabeled entry joins the top team (B).
-        { ...base, tournamentId: "t2", number: 9, school: S, suffix: null, rank: 2, fieldSize: 10 },
-        // t3: two unlabeled entries, A and B both absent: best finisher -> B, next -> A.
-        { ...base, tournamentId: "t3", number: 5, school: S, suffix: null, rank: 6, fieldSize: 10 },
-        { ...base, tournamentId: "t3", number: 4, school: S, suffix: null, rank: 2, fieldSize: 10 },
+        // t1: Blue beats Gold -> Blue is Team 1 here.
+        { ...base, tournamentId: "t1", number: 1, school: S, suffix: "Gold", rank: 5 },
+        { ...base, tournamentId: "t1", number: 2, school: S, suffix: "Blue", rank: 2 },
+        // t2: Gold beats Blue -> Gold is Team 1 here.
+        { ...base, tournamentId: "t2", number: 7, school: S, suffix: "Gold", rank: 1 },
+        { ...base, tournamentId: "t2", number: 3, school: S, suffix: "Blue", rank: 9 },
+        // t3: a sole unlabeled entry is Team 1.
+        { ...base, tournamentId: "t3", number: 4, school: S, suffix: null, rank: 12 },
       ],
       emptyMappings(),
     );
     const id = (k: string) => r.entries.get(k)!.teamSeasonId;
-    expect(id("t1#1")).toBe(id("t0#2")); // A
-    expect(id("t2#9")).toBe(id("t0#1")); // B
-    expect(id("t3#4")).toBe(id("t0#1")); // best finisher -> B
-    expect(id("t3#5")).toBe(id("t0#2")); // next -> A
-    expect([...r.teamSeasons.values()].some((t) => t.designation === "")).toBe(false);
+    expect(id("t1#2")).toBe(id("t2#7"));
+    expect(id("t1#2")).toBe(id("t3#4"));
+    expect(id("t1#2")).toMatch(/--team-1$/);
+    expect(id("t1#1")).toBe(id("t2#3"));
+    expect(id("t1#1")).toMatch(/--team-2$/);
+    expect(r.teamSeasons.size).toBe(2);
+    expect(r.teamSeasons.get(id("t1#2")!)!.displayDesignation).toBe("Team 1");
   });
 
-  it("keeps an 'unlabeled' team only when a school has no labeled team that season", () => {
+  it("orders exhibition and unranked entries after competitive finishers", () => {
     const r = resolveIdentities(
       [
-        { ...base, tournamentId: "t1", number: 1, school: "Birch Hollow High School", suffix: null, rank: 2, fieldSize: 5 },
-        { ...base, tournamentId: "t2", number: 3, school: "Birch Hollow High School", suffix: null, rank: 1, fieldSize: 5 },
-        // Two unlabeled entries at one tournament with no labeled team: unresolved.
-        { ...base, tournamentId: "t3", number: 1, school: "Cedar Point Academy", suffix: null },
-        { ...base, tournamentId: "t3", number: 2, school: "Cedar Point Academy", suffix: null },
+        { ...base, tournamentId: "t1", number: 1, school: S, suffix: "X", rank: 1, exhibition: true },
+        { ...base, tournamentId: "t1", number: 2, school: S, suffix: "Y", rank: 8 },
+        { ...base, tournamentId: "t1", number: 3, school: S, suffix: "Z", rank: null },
       ],
       emptyMappings(),
     );
-    expect(r.entries.get("t1#1")!.teamSeasonId).toMatch(/--unlabeled$/);
-    expect(r.entries.get("t1#1")!.teamSeasonId).toBe(r.entries.get("t2#3")!.teamSeasonId);
-    expect(r.entries.get("t3#1")!.resolution).toBe("unresolved");
+    expect(r.entries.get("t1#2")!.teamSeasonId).toMatch(/--team-1$/);
+    expect(r.entries.get("t1#3")!.teamSeasonId).toMatch(/--team-2$/);
+    expect(r.entries.get("t1#1")!.teamSeasonId).toMatch(/--team-3$/);
   });
 
-  it("applies reviewed mappings for aliases, entries, and merges", () => {
+  it("keeps divisions and seasons as separate teams", () => {
+    const r = resolveIdentities(
+      [
+        { ...base, tournamentId: "t1", number: 1, school: S, suffix: null, rank: 1 },
+        { ...base, tournamentId: "t2", number: 1, school: S, suffix: null, rank: 1, division: "B" },
+        { ...base, tournamentId: "t3", number: 1, school: S, suffix: null, rank: 1, season: 2025 },
+      ],
+      emptyMappings(),
+    );
+    expect(new Set(["t1#1", "t2#1", "t3#1"].map((k) => r.entries.get(k)!.teamSeasonId)).size).toBe(3);
+  });
+
+  it("applies reviewed aliases and unresolved-entry mappings", () => {
     const m = emptyMappings();
     m.schoolAliases.aliases.push({
       from: { name: "Alder Ridge H.S.", city: "Springfield", state: "ZZ" },
-      to: { name: "Alder Ridge High School", city: "Springfield", state: "ZZ" },
+      to: { name: S, city: "Springfield", state: "ZZ" },
       reason: "test",
     });
-    m.teamIdentity.entries.push({ tournament: "t1", number: 1, designation: "Gold", reason: "host confirmed" });
+    m.teamIdentity.entries.push({ tournament: "t1", number: 1, unresolved: "mixed squad", reason: "host confirmed" });
     const r = resolveIdentities(
       [
-        { ...base, tournamentId: "t1", number: 1, school: "Alder Ridge H.S.", suffix: null },
-        { ...base, tournamentId: "t1", number: 2, school: "Alder Ridge High School", suffix: "Blue" },
-        { ...base, tournamentId: "t2", number: 1, school: "Alder Ridge High School", suffix: "Gold" },
+        { ...base, tournamentId: "t1", number: 1, school: "Alder Ridge H.S.", suffix: null, rank: 1 },
+        { ...base, tournamentId: "t1", number: 2, school: S, suffix: "Blue", rank: 2 },
       ],
       m,
     );
     expect(r.schools.size).toBe(1);
-    expect(r.entries.get("t1#1")!.teamSeasonId).toBe(r.entries.get("t2#1")!.teamSeasonId);
+    expect(r.entries.get("t1#1")!.resolution).toBe("unresolved");
+    expect(r.entries.get("t1#2")!.teamSeasonId).toMatch(/--team-1$/);
     expect(schoolMatchKey({ name: "Alder Ridge H.S.", city: "Springfield", state: "zz" })).toBe("alder ridge h s|springfield|ZZ");
   });
 });

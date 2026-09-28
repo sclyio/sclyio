@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import "./globals.css";
 
@@ -13,8 +14,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body>
         <header className="topbar">
           <div className="topbar-inner">
-            <Link href="/" className="logo">
-              scly.io
+            <Link href="/" className="logo" aria-label="scly.io home">
+              <Image src="/logo.png" alt="scly.io" width={125} height={40} priority />
             </Link>
             <form action="/search" className="topsearch" role="search">
               <input name="q" required minLength={2} placeholder="Search schools, teams, tournaments" aria-label="Search" />

@@ -36,8 +36,8 @@ a:hover {
 
 /* Top bar */
 .topbar {
-  background: var(--navy);
-  color: #fff;
+  background: #ffffff;
+  border-bottom: 1px solid var(--line);
 }
 .topbar-inner {
   max-width: 1100px;
@@ -49,10 +49,8 @@ a:hover {
   flex-wrap: wrap;
 }
 .logo {
-  color: #fff;
-  font-weight: 800;
-  font-size: 20px;
-  letter-spacing: -0.5px;
+  display: flex;
+  align-items: center;
 }
 .logo:hover {
   text-decoration: none;
@@ -68,11 +66,12 @@ a:hover {
   border-radius: 20px;
   padding: 8px 14px;
   font-size: 14px;
-  background: var(--navy-2);
-  color: #fff;
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--line);
 }
 .topsearch input::placeholder {
-  color: #9fb0c8;
+  color: var(--muted);
 }
 .nav {
   display: flex;
@@ -80,12 +79,12 @@ a:hover {
   margin-left: auto;
 }
 .nav a {
-  color: #d6deea;
+  color: var(--ink);
   font-weight: 600;
   font-size: 14px;
 }
 .nav a:hover {
-  color: #fff;
+  color: var(--accent);
   text-decoration: none;
 }
 
