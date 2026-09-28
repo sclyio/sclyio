@@ -1,0 +1,56 @@
+{
+  "name": "sclyio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:generate": "drizzle-kit generate",
+    "import": "tsx scripts/import.ts",
+    "sync": "tsx scripts/import.ts --incremental",
+    "ratings:rebuild": "tsx scripts/rebuild.ts",
+    "backtest": "tsx scripts/backtest.ts",
+    "setup": "npm run db:migrate && npm run import && npm run ratings:rebuild",
+    "sync:all": "npm run sync && npm run ratings:rebuild",
+    "db:export": "tsx scripts/export-db.ts"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.3.3",
+    "better-sqlite3": "^13.0.3",
+    "clsx": "^2.1.1",
+    "drizzle-orm": "^0.45.3",
+    "js-yaml": "^4.3.2",
+    "lucide-react": "^1.48.0",
+    "next": "16.3.6",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "recharts": "^3.10.1",
+    "sciolyff": "^0.20.1",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.20.4",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.11",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.6",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^5.0.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

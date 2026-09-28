@@ -1,0 +1,66 @@
+# Scheduled data sync + rating rebuild.
+#
+# Keeps the SQLite database and the Duosmium blob cache in the Actions cache
+# so each run is incremental, then uploads a compact read-only deployment copy
+# as an artifact. Deployment itself is intentionally NOT automated here: add a
+# deploy step for your host once one has been chosen and authorized.
+name: sync-and-rebuild
+
+on:
+  schedule:
+    - cron: "17 9 * * *" # daily, 09:17 UTC
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Force a full rating rebuild"
+        type: boolean
+        default: false
+
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Restore database and source cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/sclyio.db
+            .cache/duosmium
+          key: sclyio-data-${{ github.run_id }}
+          restore-keys: sclyio-data-
+      - run: npm run db:migrate
+      - name: Incremental sync
+        run: npm run sync
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Rebuild ratings (from earliest affected date)
+        run: npm run ratings:rebuild -- ${{ inputs.full && '--full' || '' }}
+      - run: npm test
+      - name: Save database and source cache
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/sclyio.db
+            .cache/duosmium
+          key: sclyio-data-${{ github.run_id }}
+      - name: Export read-only deployment database
+        run: npm run db:export -- --out dist-data/sclyio.db
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sclyio-db
+          path: dist-data/sclyio.db
+          retention-days: 7

@@ -1,0 +1,12 @@
+# Reviewed school alias mappings (version-controlled).
+#
+# Schools are matched on normalized name + city + state. Similarly named
+# schools in different locations are NEVER merged automatically. Add an entry
+# here only after confirming two source spellings refer to the same school.
+#
+# Example:
+#   - from: { name: "Example H.S.", city: "Springfield", state: "IL" }
+#     to:   { name: "Example High School", city: "Springfield", state: "IL" }
+#     reason: "Same school; abbreviation used by one tournament host"
+#     reviewed: 2026-09-27
+aliases: []

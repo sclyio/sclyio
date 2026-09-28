@@ -1,0 +1,24 @@
+# Source overrides (version-controlled). Every override needs a reason and
+# is shown on the affected tournament page and on /data.
+#
+# supersede: a provisional or duplicate result file replaced by another.
+#   Legitimate separate divisions, tracks, flights, and sessions are distinct
+#   files and must NOT be listed here.
+#   - file: 2026-01-10_example_invitational_c
+#     supersededBy: 2026-01-10_example_invitational_final_c
+#     reason: "Host re-published corrected results under a new file name"
+#
+# exclude: keep a file visible but out of ratings (reproducible reason only;
+#   never because a team looks weaker than expected).
+#
+# format: explicitly record in-person / online format. Format is never
+#   inferred from a tournament's name alone; unknown formats get weight 1
+#   and an "unknown format" flag.
+#
+# canceledEvents / withdrawnEntries: typed statuses that SciolyFF cannot
+#   express directly. They stay visible in official results.
+supersede: []
+exclude: []
+format: []
+canceledEvents: []
+withdrawnEntries: []

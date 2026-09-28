@@ -1,0 +1,24 @@
+# Explicit team-identity decisions (version-controlled).
+#
+# Team numbers are local to one tournament and are never used as identity.
+# An unlabeled entry is treated as the school's "Unlabeled team" only when it
+# was the school's sole entry at that tournament; otherwise it is stored as
+# an unresolved appearance: shown in results, excluded from Team Performance
+# until mapped here. (School Potential superscoring still uses it, because
+# the school itself is known.)
+#
+# entries: map one tournament entry to a designation, or force it unresolved.
+#   - tournament: 2026-01-10_example_invitational_c
+#     number: 12
+#     designation: "Gold"        # or  unresolved: "reason"
+#     reason: "Host confirmed team 12 was the Gold team"
+#
+# merges: two designations of one school-season are the same team label.
+#   - school: example-high-school-springfield-il
+#     division: C
+#     season: 2026
+#     from: "Team A"
+#     into: "A"
+#     reason: "Host files use both spellings"
+entries: []
+merges: []

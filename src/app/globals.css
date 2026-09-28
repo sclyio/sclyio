@@ -1,0 +1,134 @@
+@import "tailwindcss";
+
+/* scly.io design tokens: light surface, deep navy ink, cobalt primary,
+   restrained lime accent, thin borders, subtle rounding. */
+:root {
+  --bg: #f6f8fc;
+  --surface: #ffffff;
+  --ink: #0b1a3a;
+  --ink-2: #3a4a6b;
+  --ink-3: #5d6b88; /* 4.9:1 on white */
+  --line: #d8dfeb;
+  --line-2: #eaeef5;
+  --cobalt: #1d4ed8;
+  --cobalt-2: #1e40af;
+  --cobalt-soft: #e8eefc;
+  --lime: #a3e635;
+  --lime-ink: #3f6212;
+  --lime-soft: #f1fbdc;
+  --amber-soft: #fff4dc;
+  --amber-ink: #8a5300;
+  --red-ink: #b42318;
+  --red-soft: #fdecea;
+  --green-ink: #166534;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-cobalt: var(--cobalt);
+  --color-cobalt-2: var(--cobalt-2);
+  --color-cobalt-soft: var(--cobalt-soft);
+  --color-lime: var(--lime);
+  --color-lime-ink: var(--lime-ink);
+  --color-lime-soft: var(--lime-soft);
+  --color-amber-soft: var(--amber-soft);
+  --color-amber-ink: var(--amber-ink);
+  --color-red-ink: var(--red-ink);
+  --color-red-soft: var(--red-soft);
+  --color-green-ink: var(--green-ink);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--cobalt);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+a {
+  text-underline-offset: 2px;
+}
+
+.link {
+  color: var(--cobalt);
+}
+.link:hover {
+  text-decoration: underline;
+}
+
+/* Compact data tables */
+.dtable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.dtable th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-3);
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  background: var(--surface);
+}
+.dtable td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--line-2);
+  vertical-align: middle;
+}
+.dtable tbody tr:hover {
+  background: #f9fbff;
+}
+.dtable .r {
+  text-align: right;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+}
+.skip-link:focus {
+  left: 1rem;
+  top: 1rem;
+  z-index: 50;
+  background: var(--surface);
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--cobalt);
+}
+
+/* Collapsed disclosure content must not affect page width. */
+details:not([open]) > :not(summary) {
+  display: none;
+}
+
+/* Absolutely positioned descendants (e.g. .sr-only text) must stay inside
+   horizontally scrolling tables instead of widening the page. */
+.overflow-x-auto,
+.overflow-auto {
+  position: relative;
+}

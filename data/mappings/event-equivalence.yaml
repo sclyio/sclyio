@@ -1,0 +1,180 @@
+# Cross-season event equivalence (reviewed, version-controlled).
+#
+# Event definitions are scoped by division and season. A School Potential
+# fit may use the prior season's results for an event ONLY when both
+# seasons appear in the same group below. Events that rotated out are never
+# carried into a replacement event.
+#
+# Basis for the initial groups (2026-09-27): the event name appears in both
+# consecutive seasons of Duosmium's official national event lists
+# (data/events-b.csv, data/events-c.csv). Annual rules revisions were NOT
+# reviewed event-by-event; remove a group if its rules changed materially.
+groups:
+  - id: B-anatomy-and-physiology-2025-2026
+    division: B
+    members:
+      - { season: 2025, event: "Anatomy and Physiology" }
+      - { season: 2026, event: "Anatomy and Physiology" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: B-codebusters-2025-2026
+    division: B
+    members:
+      - { season: 2025, event: "Codebusters" }
+      - { season: 2026, event: "Codebusters" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: B-crime-busters-2025-2026
+    division: B
+    members:
+      - { season: 2025, event: "Crime Busters" }
+      - { season: 2026, event: "Crime Busters" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: B-disease-detectives-2025-2026
+    division: B
+    members:
+      - { season: 2025, event: "Disease Detectives" }
+      - { season: 2026, event: "Disease Detectives" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: B-dynamic-planet-2025-2026
+    division: B
+    members:
+      - { season: 2025, event: "Dynamic Planet" }
+      - { season: 2026, event: "Dynamic Planet" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: B-entomology-2025-2026
+    division: B
+    members:
+      - { season: 2025, event: "Entomology" }
+      - { season: 2026, event: "Entomology" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: B-experimental-design-2025-2026
+    division: B
+    members:
+      - { season: 2025, event: "Experimental Design" }
+      - { season: 2026, event: "Experimental Design" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: B-helicopter-2025-2026
+    division: B
+    members:
+      - { season: 2025, event: "Helicopter" }
+      - { season: 2026, event: "Helicopter" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: B-meteorology-2025-2026
+    division: B
+    members:
+      - { season: 2025, event: "Meteorology" }
+      - { season: 2026, event: "Meteorology" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: B-metric-mastery-2025-2026
+    division: B
+    members:
+      - { season: 2025, event: "Metric Mastery" }
+      - { season: 2026, event: "Metric Mastery" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: B-mission-possible-2025-2026
+    division: B
+    members:
+      - { season: 2025, event: "Mission Possible" }
+      - { season: 2026, event: "Mission Possible" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: B-potions-and-poisons-2025-2026
+    division: B
+    members:
+      - { season: 2025, event: "Potions and Poisons" }
+      - { season: 2026, event: "Potions and Poisons" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: B-scrambler-2025-2026
+    division: B
+    members:
+      - { season: 2025, event: "Scrambler" }
+      - { season: 2026, event: "Scrambler" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: B-write-it-do-it-2025-2026
+    division: B
+    members:
+      - { season: 2025, event: "Write It Do It" }
+      - { season: 2026, event: "Write It Do It" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: C-anatomy-and-physiology-2025-2026
+    division: C
+    members:
+      - { season: 2025, event: "Anatomy and Physiology" }
+      - { season: 2026, event: "Anatomy and Physiology" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: C-astronomy-2025-2026
+    division: C
+    members:
+      - { season: 2025, event: "Astronomy" }
+      - { season: 2026, event: "Astronomy" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: C-bungee-drop-2025-2026
+    division: C
+    members:
+      - { season: 2025, event: "Bungee Drop" }
+      - { season: 2026, event: "Bungee Drop" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: C-chemistry-lab-2025-2026
+    division: C
+    members:
+      - { season: 2025, event: "Chemistry Lab" }
+      - { season: 2026, event: "Chemistry Lab" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: C-codebusters-2025-2026
+    division: C
+    members:
+      - { season: 2025, event: "Codebusters" }
+      - { season: 2026, event: "Codebusters" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: C-disease-detectives-2025-2026
+    division: C
+    members:
+      - { season: 2025, event: "Disease Detectives" }
+      - { season: 2026, event: "Disease Detectives" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: C-dynamic-planet-2025-2026
+    division: C
+    members:
+      - { season: 2025, event: "Dynamic Planet" }
+      - { season: 2026, event: "Dynamic Planet" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: C-electric-vehicle-2025-2026
+    division: C
+    members:
+      - { season: 2025, event: "Electric Vehicle" }
+      - { season: 2026, event: "Electric Vehicle" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: C-entomology-2025-2026
+    division: C
+    members:
+      - { season: 2025, event: "Entomology" }
+      - { season: 2026, event: "Entomology" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: C-experimental-design-2025-2026
+    division: C
+    members:
+      - { season: 2025, event: "Experimental Design" }
+      - { season: 2026, event: "Experimental Design" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: C-forensics-2025-2026
+    division: C
+    members:
+      - { season: 2025, event: "Forensics" }
+      - { season: 2026, event: "Forensics" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: C-helicopter-2025-2026
+    division: C
+    members:
+      - { season: 2025, event: "Helicopter" }
+      - { season: 2026, event: "Helicopter" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: C-materials-science-2025-2026
+    division: C
+    members:
+      - { season: 2025, event: "Materials Science" }
+      - { season: 2026, event: "Materials Science" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
+  - id: C-robot-tour-2025-2026
+    division: C
+    members:
+      - { season: 2025, event: "Robot Tour" }
+      - { season: 2026, event: "Robot Tour" }
+    basis: "Same name in consecutive official national event lists; rules revisions not individually reviewed."
