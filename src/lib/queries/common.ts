@@ -2,9 +2,10 @@ import "server-only";
 import { cache } from "react";
 import { all, DataUnavailableError, get } from "../db/read";
 import type { RatingView } from "../rating/config";
+import { normQuery } from "../format";
 
 export { DataUnavailableError };
-export { all, get };
+export { all, get, normQuery };
 
 /** Per-request memoized key/value lookup. */
 export const kv = cache(async (key: string): Promise<string | null> => {
@@ -107,16 +108,6 @@ export const officialEvents = cache(
       season,
     ]),
 );
-
-export function normQuery(q: string): string {
-  return q
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
 
 export const states = cache(async (): Promise<string[]> =>
   (await all<{ state: string }>(`SELECT DISTINCT state FROM schools ORDER BY state`)).map((r) => r.state),

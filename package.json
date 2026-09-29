@@ -12,14 +12,16 @@
     "test": "vitest run",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:generate": "drizzle-kit generate",
+    "accounts:migrate": "tsx scripts/accounts-migrate.ts",
     "import": "tsx scripts/import.ts",
     "sync": "tsx scripts/import.ts --incremental",
     "ratings:rebuild": "tsx scripts/rebuild.ts",
     "backtest": "tsx scripts/backtest.ts",
-    "setup": "npm run db:migrate && npm run import && npm run ratings:rebuild",
+    "setup": "npm run db:migrate && npm run accounts:migrate && npm run import && npm run ratings:rebuild",
     "sync:all": "npm run sync && npm run ratings:rebuild",
     "db:export": "tsx scripts/export-db.ts",
-    "publish:turso": "tsx scripts/publish-turso.ts"
+    "publish:turso": "tsx scripts/publish-turso.ts",
+    "personal:recompute": "tsx scripts/personal-recompute.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
@@ -27,6 +29,7 @@
     "drizzle-orm": "^0.45.3",
     "js-yaml": "^4.3.2",
     "next": "16.3.6",
+    "openid-client": "^6.8.8",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "sciolyff": "^0.20.1",

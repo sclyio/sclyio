@@ -16,3 +16,14 @@ export const STATUS_TEXT: Record<string, string> = {
   withdrawn: "WD",
   canceled: "CX",
 };
+
+/** Search normalization shared by the public search and school lookup. */
+export function normQuery(q: string): string {
+  return q
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}

@@ -20,6 +20,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <form action="/search" className="topsearch" role="search">
               <input name="q" required minLength={2} placeholder="Search schools, teams, tournaments" aria-label="Search" />
             </form>
+            <Link href="/dashboard" className="acct-link">
+              My account
+            </Link>
           </div>
         </header>
         <main className="container">{children}</main>

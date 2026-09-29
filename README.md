@@ -6,7 +6,7 @@ Ratings for Science Olympiad **Division B and C** teams, built from public tourn
 - **Schools**: event-by-event school superscores within each tournament, re-ranked among unique schools. Fitted separately from teams.
 - Every rating is event-first (placement logits, field-strength adjustment, regularized fit), then averaged over the season's official events and shown on a 1–16.5 scale (USR). **Season Trend** is the same rating using only the current season.
 
-There are no accounts, rosters, or individual student ratings: public results do not establish individual contributions.
+Browsing needs no account. Students can sign in with Google, record which competitions and events they took part in, and see an **Unofficial USR** estimated from those claimed team-event results (see [Accounts](#accounts-and-the-unofficial-usr)). There are no public rosters or individual leaderboards: public results record team-event performance, not individual contributions.
 
 ## Quick start
 
@@ -27,6 +27,8 @@ npm run dev                       # http://localhost:3000
 | `npm run sync` | Incremental import: unchanged git blobs are skipped; changed files are re-validated and replaced transactionally. |
 | `npm run ratings:rebuild` | Recompute snapshots from the earliest affected date recorded by imports. `--full` or `--from YYYY-MM-DD` to force. |
 | `npm run backtest` | Chronological backtest (v2 vs v1 Elo vs placement-logit baseline) → `backtest_results` table + `docs/backtest.md`. Optional `--sentienttree-dir <dir>` comparison with SentientTree's rankings exported to `divb.csv`/`divc.csv`. |
+| `npm run accounts:migrate` | Create/upgrade the accounts database (`accounts/migrations/`; local default `data/accounts.db`). Additive only. |
+| `npm run personal:recompute` | Optional: recompute every stored Unofficial USR against a dataset (`--data <libsql url>`). Pages also recompute lazily when a stored score is out of date. |
 | `npm run db:export` | Compact read-only copy of the published build → `dist-data/sclyio.db`. |
 | `npm run publish:turso` | Upload the export to Turso as a new dataset, verify it, and switch the site to it (skips if unchanged; `--force` to re-upload). |
 | `npm test` / `npm run typecheck` / `npm run lint` / `npm run build` | Vitest suite, `tsc`, ESLint, production build. |
@@ -43,7 +45,7 @@ src/lib/source     duosmium-parse.ts    src/lib/identity  src/lib/db  src/lib/ra
 - **Scoring**: official ranks, totals, drops, ties, exhibition handling, penalties, and statuses come from the official `sciolyff` interpreter. Official standings are stored as published; the model uses a separate eligible-participant ranking.
 - **Validation**: every file is checked with `sciolyff`'s validator; invalid files are quarantined with a reason. Files whose only failures are award metadata (trophy/medal/bid counts, short name) are imported and flagged, since those fields cannot change placings.
 - **Provenance and corrections**: each file records path, blob SHA, revision, SHA-256, parser version, and result URL. Each tournament's derived observations are hashed; a change records the earliest affected date, the rebuild recomputes from there, and the published build pointer flips in one transaction.
-- **Read-only web**: no mutation endpoints. Sync, rebuild, and publish are CLI jobs.
+- **Results are read-only on the web**: sync, rebuild, and publish are CLI jobs. The only web mutations are account actions (server actions and the Google OAuth routes), which write to a separate accounts database and never touch results or ratings.
 
 ## Identity rules
 
@@ -94,6 +96,56 @@ Each publish creates a new dataset database, uploads and verifies it, and only t
 
 Storage: two ~1.4 GB datasets plus the meta database.
 
+## Accounts and the Unofficial USR
+
+### What users can do
+
+1. **Sign in with Google** (`/login`) and choose a display name (`/onboarding`).
+2. **Affiliate with an imported school** for one division and season. Affiliations start self-reported; choosing a school grants no access to anything. A mid-season transfer (`/settings/profile`) ends the old affiliation and starts a new, unverified one; earlier claims stay with the old one.
+3. **Add competition** (`/dashboard/claims/new`): pick an imported tournament, the school's actual entry (suffix and team number exactly as imported), then the events they competed in, with each official result shown. Each event is its own claim (one per user, tournament, and event). Event partners can claim the same team-event result; one user cannot claim an event on two teams at one tournament.
+4. **Unofficial USR** on `/dashboard`, available immediately from self-reported and pending claims.
+5. **Request verification** (`/dashboard/verify`) with an optional private note, and follow each item's status.
+
+Admin (`/admin/verifications`, absent from ordinary navigation, 404 for everyone else): a filterable queue of submissions with the user, school, division/season, tournament, actual team entry, claimed events, official results, Duosmium links, revisions, review flags, and history. The admin records a decision per item (verify / reject / revoke) with a reason the user sees and a separate private note.
+
+### Security model
+
+- **Authentication**: server-side OAuth 2.0 authorization-code flow with [openid-client](https://github.com/panva/openid-client) (state, nonce, PKCE S256). The library validates the ID token's signature (Google JWKS), issuer, audience, expiry, and nonce; `email_verified` must be true. Scopes are `openid email profile` only; access and refresh tokens are discarded.
+- **Identity**: accounts are keyed by `(provider, subject)`. Email is never an account key and never links accounts. The provider email is private.
+- **Sessions**: a random 256-bit token in an HttpOnly, SameSite=Lax cookie (`__Host-` prefixed and Secure in production). Only its SHA-256 is stored, so sessions are revocable (log out, log out everywhere); they expire after 14 days. Every state change also needs a per-session CSRF token (Next.js additionally rejects cross-origin action POSTs). Post-login redirects accept only same-origin allowlisted paths.
+- **Administrator**: one policy, `requireAdmin()` in `src/lib/accounts/actor.ts`, evaluated from the database on every admin page load and action: an active session for a Google account whose Google-reported email is verified and, lowercased and trimmed, exactly `universal.scioly.rating@gmail.com` (no dot stripping, no `+` removal). There is no stored role, no promotion path, and no first-user admin. Review decisions also require a Google sign-in completed within the last **30 minutes**. Google has no `max_age` or `prompt=login`, so "Sign in again" runs the flow with `prompt=select_account` and the new session records the time. The admin cannot review their own affiliation or claims.
+- **Integrity**: every submitted id is re-validated on the server against the active dataset (membership, school, entry, tournament, division/season, event). Status transitions are enforced on the server. Decisions bind to the reviewed revision with optimistic checks, so approving a claim that was edited during review fails safely. `verification_decisions` and `audit_log` are append-only (database triggers reject UPDATE and DELETE).
+- **Privacy**: profiles are private (this version has no public profile pages). Pages never expose provider email, subject, sessions, or admin private notes; signed-in routes send `Cache-Control: private, no-store`.
+
+### Accounts database
+
+Result datasets are replaced on every publish, so accounts live in their own writable database (`accounts/migrations/0001_accounts.sql`): `users`, `oauth_accounts`, `sessions`, `school_memberships`, `verification_requests`, `participation_claims`, `verification_decisions`, `audit_log`, `personal_rating_snapshots`. Rows reference dataset ids (school, tournament, entry, tournament event, event definition) by value. Locally it is `data/accounts.db`; in production it is a dedicated Turso database (`ACCOUNTS_DATABASE_URL` plus a read-write token). It is never part of `db:export` or `publish:turso`.
+
+After a publish, each claim's official result is fingerprinted again. Unreviewed claims follow the correction. A verified claim whose result changed is flagged "changed" for re-review and stops counting as admin-verified evidence. A result that disappeared is marked missing and stops counting.
+
+### Unofficial USR (method `personal-v1`)
+
+`src/lib/personal/` is an experimental proxy, not a validated model of individual ability. It only reads the published build and never feeds back into team, school, or field-strength fits.
+
+For each counted claim (self-reported, pending, or verified) in one division and season:
+
+- x = the engine's own placement logit for that team entry, recomputed with `deriveObservations()` (same eligible participants, ties, and non-participation handling);
+- k = the published field offset of that tournament event, and w = its normalized observation weight (`field_fits.weight / n`), both from the season's latest event-detail team refit;
+- a = x + k. Per event: **s = Σ w·a / (Σ w + 2)**. Summary: the mean over nationally comparable rated events. Display: the site's mapping **USR = 1 + 15.5 / (1 + e^(−(z − 0.85)/0.6))**.
+
+Only claimed events count. There is no default score for missing events, and neither the school's rating nor its superscored School Potential is used. Claims without a rated result are stored and labelled ("no eligible result", "no comparable model estimate", or "rating calculation pending"). Estimates for teams outside the event's connected reference component are shown as local-only and left out of the summary. A rating is provisional with fewer than 3 comparable contributing claims or fewer than 2 competitions. Each stored snapshot records the model and method versions, dataset build, rating snapshot, computation time, and the input claims' revisions, statuses, and source fingerprints. If those no longer match, the page recomputes before showing a score, or shows "calculation pending".
+
+### Setup: Google sign-in
+
+1. Google Cloud Console, **APIs & Services → OAuth consent screen**: user type External; app name "scly.io"; support and developer contact email; authorized domain `scly.io`; scopes `openid`, `.../auth/userinfo.email`, and `.../auth/userinfo.profile` only. Publish the app (these basic scopes do not need Google verification), or add test users while it is in Testing.
+2. **Credentials → Create credentials → OAuth client ID → Web application**. Authorized redirect URIs, exactly:
+   - `http://localhost:3000/auth/google/callback`
+   - `https://scly.io/auth/google/callback`
+
+   Add `https://www.scly.io/auth/google/callback` only if the site is served from `www`; `APP_ORIGIN` must match the origin actually used. No JavaScript origins are needed.
+3. Environment (see `.env.example`): `APP_ORIGIN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET` (at least 32 random characters), and in production `ACCOUNTS_DATABASE_URL` and `ACCOUNTS_DATABASE_AUTH_TOKEN` (for example `turso db create sclyio-accounts`, then `turso db tokens create sclyio-accounts`). Set them in Vercel for Production and keep secrets out of the repository.
+4. Run `npm run accounts:migrate` against each accounts database (locally, and once with the production environment for Turso).
+
 ## Known limitations
 
 - Coverage is limited to files published to Duosmium; 442 files are quarantined by SciolyFF validation, including some state tournaments.
@@ -101,6 +153,7 @@ Storage: two ~1.4 GB datasets plus the meta database.
 - Tournament format is unknown for all tournaments, so the online discount is inactive.
 - Cross-season equivalence assumes same-named official events are equivalent; rule changes were not reviewed.
 - Rating history is a reconstruction from today's archive. Division A is not imported.
+- The Unofficial USR is an experimental proxy built from team-event results; it cannot isolate an individual's contribution, and verification is a manual judgment, not proof from public results.
 
 ## Attribution and licensing
 
