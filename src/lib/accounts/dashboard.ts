@@ -13,6 +13,7 @@ export interface DashClaim {
   claim: ClaimRow;
   tournamentName: string;
   tournamentDate: string;
+  tournamentLevel: string | null;
   resultUrl: string | null;
   entryText: string;
   eventName: string;
@@ -57,6 +58,7 @@ export async function describeClaim(ctx: Ctx, c: ClaimRow, reason: string | null
     claim: c,
     tournamentName: t?.name ?? c.tournament_id,
     tournamentDate: t?.end_date ?? "",
+    tournamentLevel: t?.level ?? null,
     resultUrl: t?.result_url ?? null,
     entryText: e ? entryLabel(e) : "entry no longer in results",
     eventName: ev?.name ?? c.event_def_id,

@@ -18,8 +18,10 @@ export const OAUTH_COOKIE = () => (secureCookies() ? "__Host-sclyio_oauth" : "sc
 export const dataSource = { all, get };
 
 export async function requestCtx(form?: FormData): Promise<Ctx> {
-  await ensureAccountsSchema();
+  // Read cookies first: it marks the route as per-request, so pages are never
+  // prerendered at build time (where no accounts database is reachable).
   const jar = await cookies();
+  await ensureAccountsSchema();
   const csrf = form?.get("csrf");
   return {
     db: accountsDb(),

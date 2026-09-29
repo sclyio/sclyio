@@ -957,3 +957,22 @@ button:disabled {
 .vmark.on {
   color: var(--accent);
 }
+.ev-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 6px 18px;
+  font-size: 14px;
+}
+.ev-list li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.ev-list li .muted {
+  margin-left: auto;
+  font-size: 13px;
+}

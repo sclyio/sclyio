@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { PROVISIONAL_MIN_CLAIMS, PROVISIONAL_MIN_COMPETITIONS } from "@/lib/personal/rating";
 import type { PersonalView } from "@/lib/personal/snapshots";
 import { divSeason } from "./account";
@@ -99,8 +98,7 @@ export function PersonalRatingCard({ division, season, view, own }: { division: 
       {s ? (
         <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
           Model {s.modelVersion} / {s.methodVersion}
-          {s.ratingAsOf ? ` · field adjustments from the ${s.ratingAsOf} refit` : ""} · computed {s.computedAt.slice(0, 16).replace("T", " ")} UTC ·{" "}
-          <Link href="/dashboard/method">How this is calculated</Link>
+          {s.ratingAsOf ? ` · field adjustments from the ${s.ratingAsOf} refit` : ""} · computed {s.computedAt.slice(0, 16).replace("T", " ")} UTC
         </p>
       ) : null}
     </section>
