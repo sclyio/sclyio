@@ -1,5 +1,6 @@
 import "server-only";
 import * as oidc from "openid-client";
+import { cleanEnv } from "../accounts/db";
 
 /**
  * Google OpenID Connect (server-side authorization-code flow) via
@@ -17,7 +18,7 @@ export const GOOGLE_ISSUER = "https://accounts.google.com";
 export const SCOPES = "openid email profile";
 
 export function appOrigin(): string {
-  const o = process.env.APP_ORIGIN;
+  const o = cleanEnv(process.env.APP_ORIGIN);
   if (o) return new URL(o).origin;
   if (process.env.NODE_ENV === "production") throw new Error("APP_ORIGIN must be set in production.");
   return "http://localhost:3000";
@@ -26,15 +27,15 @@ export function appOrigin(): string {
 export const redirectUri = () => `${appOrigin()}/auth/google/callback`;
 
 export function googleConfigured(): boolean {
-  return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.SESSION_SECRET);
+  return Boolean(cleanEnv(process.env.GOOGLE_CLIENT_ID) && cleanEnv(process.env.GOOGLE_CLIENT_SECRET) && cleanEnv(process.env.SESSION_SECRET));
 }
 
 let config: Promise<oidc.Configuration> | null = null;
 
 export function googleConfig(): Promise<oidc.Configuration> {
   if (!config) {
-    const id = process.env.GOOGLE_CLIENT_ID;
-    const secret = process.env.GOOGLE_CLIENT_SECRET;
+    const id = cleanEnv(process.env.GOOGLE_CLIENT_ID);
+    const secret = cleanEnv(process.env.GOOGLE_CLIENT_SECRET);
     if (!id || !secret) throw new Error("Google sign-in is not configured.");
     config = oidc
       .discovery(new URL(GOOGLE_ISSUER), id, secret, undefined, { execute: [oidc.enableNonRepudiationChecks] })

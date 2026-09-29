@@ -16,9 +16,39 @@ import { usedArgs } from "../db/args";
 
 let shared: Client | null = null;
 
+/** A configuration problem, with a short machine-readable code. Messages never include secrets. */
+export class AccountsConfigError extends Error {
+  constructor(
+    public code: "missing_url" | "invalid_url" | "missing_token" | "client_error",
+    message: string,
+  ) {
+    super(message);
+    this.name = "AccountsConfigError";
+  }
+}
+
+/** Env values pasted into dashboards often carry whitespace, a trailing newline, or quotes. */
+export function cleanEnv(v: string | undefined): string | undefined {
+  if (v === undefined) return undefined;
+  const t = v.trim().replace(/^(['"])(.*)\1$/, "$2").trim();
+  return t || undefined;
+}
+
 export function accountsDbUrl(): { url: string; authToken?: string } {
-  if (process.env.ACCOUNTS_DATABASE_URL) {
-    return { url: process.env.ACCOUNTS_DATABASE_URL, authToken: process.env.ACCOUNTS_DATABASE_AUTH_TOKEN || undefined };
+  const url = cleanEnv(process.env.ACCOUNTS_DATABASE_URL);
+  const authToken = cleanEnv(process.env.ACCOUNTS_DATABASE_AUTH_TOKEN);
+  if (url) {
+    if (!/^(libsql|https?|wss?|file):/i.test(url)) {
+      throw new AccountsConfigError("invalid_url", "ACCOUNTS_DATABASE_URL must start with libsql:// (or https://, wss://, file:).");
+    }
+    if (!url.startsWith("file:") && !authToken) {
+      throw new AccountsConfigError("missing_token", "ACCOUNTS_DATABASE_AUTH_TOKEN is not set for this deployment.");
+    }
+    return { url, authToken };
+  }
+  // A serverless deployment has no writable local file: the URL is required there.
+  if (process.env.VERCEL) {
+    throw new AccountsConfigError("missing_url", "ACCOUNTS_DATABASE_URL is not set for this deployment (check the Production environment and redeploy).");
   }
   const file = path.resolve(/*turbopackIgnore: true*/ process.env.ACCOUNTS_DATABASE_PATH ?? "./data/accounts.db");
   return { url: `file:${file}` };
@@ -26,8 +56,18 @@ export function accountsDbUrl(): { url: string; authToken?: string } {
 
 export function accountsDb(): Client {
   if (!shared) {
-    const { url, authToken } = accountsDbUrl();
-    shared = createClient({ url, authToken, intMode: "number" });
+    let cfg: { url: string; authToken?: string };
+    try {
+      cfg = accountsDbUrl();
+      shared = createClient({ url: cfg.url, authToken: cfg.authToken, intMode: "number" });
+    } catch (e) {
+      const err =
+        e instanceof AccountsConfigError
+          ? e
+          : new AccountsConfigError("client_error", `Could not open the accounts database: ${e instanceof Error ? e.name : "error"}.`);
+      console.error(`[scly.io] ${err.message}`);
+      throw err;
+    }
   }
   return shared;
 }
@@ -109,14 +149,19 @@ export class AccountsSchemaError extends Error {
 let schemaChecked: Promise<void> | null = null;
 
 /** Verify once per process that the accounts database has been migrated far enough. */
-export function ensureAccountsSchema(db: Client = accountsDb()): Promise<void> {
+export function ensureAccountsSchema(client?: Client): Promise<void> {
   if (!schemaChecked) {
     schemaChecked = (async () => {
+      const db = client ?? accountsDb();
       let applied: string[] = [];
       try {
         applied = (await rows<{ name: string }>(db, `SELECT name FROM _migrations`)).map((r) => r.name);
-      } catch {
-        // No _migrations table: never migrated.
+      } catch (e) {
+        // No _migrations table means never migrated; anything else (auth, network) is a connection problem.
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!/no such table/i.test(msg)) {
+          throw new AccountsConfigError("client_error", `The accounts database could not be queried (${msg.slice(0, 160)}). Check ACCOUNTS_DATABASE_URL and ACCOUNTS_DATABASE_AUTH_TOKEN.`);
+        }
       }
       if (!applied.includes(REQUIRED_ACCOUNTS_MIGRATION)) throw new AccountsSchemaError(REQUIRED_ACCOUNTS_MIGRATION);
     })().catch((e) => {

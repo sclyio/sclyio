@@ -123,7 +123,7 @@ export async function revokeAllSessions(db: Client, userId: string, now: Date) {
 }
 
 function sessionSecret(): string {
-  const s = process.env.SESSION_SECRET;
+  const s = process.env.SESSION_SECRET?.trim();
   if (!s || s.length < 32) throw new Error("SESSION_SECRET must be set (at least 32 characters).");
   return s;
 }
