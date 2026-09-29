@@ -112,7 +112,8 @@ export interface AppearanceRow {
   after: HistoryPoint | null;
 }
 
-function attachRefits<T extends { startDate: string; endDate: string }>(rows: T[], hist: HistoryPoint[]) {
+/** USR from the last refit before a tournament and the first refit after it. */
+export function attachRefits<T extends { startDate: string; endDate: string }>(rows: T[], hist: HistoryPoint[]) {
   return rows.map((r) => {
     const before = [...hist].reverse().find((h) => h.asOf < r.startDate && h.usr !== null) ?? null;
     const after = hist.find((h) => h.asOf >= r.endDate && h.usr !== null) ?? null;
@@ -370,7 +371,7 @@ export async function schoolProfile(id: string) {
       [id],
     ),
     all(
-      `SELECT t.id, t.name, t.level, t.division, t.season, t.end_date, t.result_url, COUNT(*) AS entries, MIN(e.rank) AS best_rank,
+      `SELECT t.id, t.name, t.level, t.division, t.season, t.start_date, t.end_date, t.result_url, COUNT(*) AS entries, MIN(e.rank) AS best_rank,
               (SELECT COUNT(*) FROM entries x WHERE x.tournament_id = t.id AND x.exhibition = 0) AS field
        FROM entries e JOIN tournaments t ON t.id = e.tournament_id WHERE e.school_id = ? GROUP BY t.id ORDER BY t.end_date DESC`,
       [id],

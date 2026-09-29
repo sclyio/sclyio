@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { VerifiedIcon } from "@/components/account";
-import { Avatar, seasonLabel, seasonRange, Tabs, TournamentLink, usr } from "@/components/plain";
+import { RatingBadge, seasonLabel, seasonRange, Tabs } from "@/components/plain";
+import { ChipRow, EventTable, ProfileHeader, ResultCard, SeasonHead } from "@/components/profile";
 import { RatingChart } from "@/components/rating-chart";
 import type { DashClaim } from "@/lib/accounts/dashboard";
 import { accountsDb } from "@/lib/accounts/db";
@@ -16,7 +17,7 @@ export const metadata: Metadata = { title: "Member", robots: { index: false, fol
 
 const isVerified = (c: DashClaim) => c.claim.status === "VERIFIED" && c.claim.source_state === "current";
 
-/** Member profile, laid out like a team profile: header with USR and Season Trend, then Results / Events / Rating History. */
+/** Member profile, laid out exactly like a team profile: Results / Events / Rating History. */
 export default async function MemberPage(props: PageProps<"/members/[id]">) {
   const { id } = await props.params;
   const sp = (await props.searchParams) as Record<string, string | undefined>;
@@ -35,22 +36,19 @@ export default async function MemberPage(props: PageProps<"/members/[id]">) {
   const claims = p.claims.filter((c) => c.claim.division === division);
   const snaps = new Map<number, PersonalSnapshot>();
   for (const r of p.ratings) if (r.division === division && !r.view.pending && r.view.snapshot) snaps.set(r.season, r.view.snapshot);
-  const claimSeasons = [...new Set(claims.map((c) => c.claim.season))].sort((a, b) => b - a);
+  const seasons = [...new Set(claims.map((c) => c.claim.season))].sort((a, b) => b - a);
   const ratedSeasons = [...snaps.keys()].sort((a, b) => b - a);
   const latest = ratedSeasons.length ? snaps.get(ratedSeasons[0])! : null;
   const season = ratedSeasons.includes(Number(sp.season)) ? Number(sp.season) : ratedSeasons[0];
   const memberSeasons = memberships.map((m) => m.season);
   const currentSchool = memberships[0];
-  const schools = [...new Map(memberships.map((m) => [m.school_id, m])).values()];
-  const verifiedClaims = claims.filter(isVerified).length;
-
   const base = `/members/${encodeURIComponent(p.userId)}`;
   const q = (extra: string) => {
     const parts = [division !== latestDivision ? `div=${division}` : "", extra].filter(Boolean);
     return parts.length ? `${base}?${parts.join("&")}` : base;
   };
   const rated = latest?.state === "rated";
-  const status = !latest ? "Unrated" : latest.state !== "rated" ? "No comparable estimate" : latest.provisional ? "Provisional" : "Unofficial";
+  const status = !latest ? "Unrated" : !rated ? "No comparable estimate" : latest.provisional ? "Provisional" : "Unofficial";
 
   return (
     <>
@@ -59,86 +57,61 @@ export default async function MemberPage(props: PageProps<"/members/[id]">) {
           Your profile is private: only you can see this page. <Link href="/settings/profile">Change in Settings</Link>
         </p>
       ) : null}
-      <section className="card">
-        <div className="profile">
-          <Avatar name={p.displayName} />
-          <div>
-            <h1 className="profile-name">{p.displayName}</h1>
-            <div className="profile-sub">
-              {currentSchool ? (
-                <>
-                  <Link href={`/schools/${encodeURIComponent(currentSchool.school_id)}?tab=members`}>{currentSchool.school_name}</Link>
-                  <VerifiedIcon verified={currentSchool.status === "VERIFIED"} /> ·{" "}
-                </>
-              ) : null}
-              Division {division}
-              {memberSeasons.length ? ` · ${seasonRange(Math.min(...memberSeasons), Math.max(...memberSeasons))}` : ""}
-              {own ? " · this is you" : ""}
-            </div>
-            {divisions.length > 1 ? (
-              <div className="chips" style={{ marginTop: 10, marginBottom: 0 }}>
-                {divisions.map((d) => (
-                  <Link key={d} className={d === division ? "chip on" : "chip"} href={d === latestDivision ? base : `${base}?div=${d}`}>
-                    Division {d}
-                  </Link>
-                ))}
-              </div>
+      <ProfileHeader
+        avatar={p.displayName}
+        title={p.displayName}
+        sub={
+          <>
+            {currentSchool ? (
+              <>
+                <Link href={`/schools/${encodeURIComponent(currentSchool.school_id)}?tab=members`}>{currentSchool.school_name}</Link>
+                <VerifiedIcon verified={currentSchool.status === "VERIFIED"} /> ·{" "}
+              </>
             ) : null}
-          </div>
-          <div className="badges">
-            <div className="badge unofficial">
-              <div className="badge-label">UNOFFICIAL USR</div>
-              <div className="badge-value">{rated ? usr(latest!.summaryUsr) : "-"}</div>
-              <div className="badge-sub">{status}</div>
-            </div>
-            <div className="badge trend unofficial">
-              <div className="badge-label">SEASON TREND</div>
-              <div className="badge-value">{latest?.trendState === "rated" ? usr(latest.trendUsr) : "-"}</div>
-              <div className="badge-sub">{ratedSeasons.length ? seasonLabel(ratedSeasons[0]) : ""}</div>
-            </div>
-          </div>
-        </div>
-        <div style={{ marginTop: 16 }}>
-          <span className="stat">
-            <b>{latest?.ratedEvents ?? 0}</b>
-            <span>Events rated</span>
-          </span>
-          <span className="stat">
-            <b>{new Set(claims.map((c) => c.claim.tournament_id)).size}</b>
-            <span>Competitions</span>
-          </span>
-          <span className="stat">
-            <b>{claimSeasons.length}</b>
-            <span>Seasons</span>
-          </span>
-          <span className="stat">
-            <b>
-              {verifiedClaims}/{claims.length}
-            </b>
-            <span>Claims verified</span>
-          </span>
-          <span className="stat">
-            <b>{schools.length}</b>
-            <span>{schools.length === 1 ? "School" : "Schools"}</span>
-          </span>
-        </div>
-        <p className="muted" style={{ fontSize: 13, margin: "12px 0 0" }}>
-          Estimated from {own ? "your" : "their"} claimed team-event results. It does not isolate {own ? "your" : "their"} individual contribution
-          and is not comparable to a team or school rating.
-        </p>
-      </section>
+            Division {division}
+            {memberSeasons.length ? ` · ${seasonRange(Math.min(...memberSeasons), Math.max(...memberSeasons))}` : ""}
+          </>
+        }
+        chips={
+          divisions.length > 1
+            ? divisions.map((d) => (
+                <Link key={d} className={d === division ? "chip on" : "chip"} href={d === latestDivision ? base : `${base}?div=${d}`}>
+                  Division {d}
+                </Link>
+              ))
+            : undefined
+        }
+        badges={
+          <>
+            <RatingBadge label="UNOFFICIAL USR" value={rated ? latest!.summaryUsr : null} sub={status} />
+            <RatingBadge
+              label="SEASON TREND"
+              value={latest?.trendState === "rated" ? latest.trendUsr : null}
+              sub={ratedSeasons.length ? seasonLabel(ratedSeasons[0]) : undefined}
+              trend
+            />
+          </>
+        }
+        stats={[
+          { value: latest?.ratedEvents ?? 0, label: "Events" },
+          { value: new Set(claims.map((c) => c.claim.tournament_id)).size, label: "Tournaments" },
+          { value: seasons.length, label: "Seasons" },
+          { value: `${claims.filter(isVerified).length}/${claims.length}`, label: "Verified" },
+        ]}
+        note={`Estimated from ${own ? "your" : "their"} claimed team-event results. It does not isolate ${own ? "your" : "their"} individual contribution.`}
+      />
 
       <Tabs
         active={tab}
         items={[
           { key: "results", label: "Results", href: q("") },
-          { key: "events", label: "Events", href: q(`${season && season !== ratedSeasons[0] ? `season=${season}&` : ""}tab=events`) },
+          { key: "events", label: "Events", href: q("tab=events") },
           { key: "history", label: "Rating History", href: q("tab=history") },
         ]}
       />
 
       {tab === "results" ? (
-        <Results claims={claims} seasons={claimSeasons} schools={memberships} />
+        <Results claims={claims} seasons={seasons} schools={memberships} />
       ) : tab === "events" ? (
         <Events snaps={snaps} seasons={ratedSeasons} season={season} claims={claims} href={(s) => q(`season=${s}&tab=events`)} />
       ) : (
@@ -149,12 +122,9 @@ export default async function MemberPage(props: PageProps<"/members/[id]">) {
 }
 
 function Results({ claims, seasons, schools }: { claims: DashClaim[]; seasons: number[]; schools: { school_name: string; season: number }[] }) {
-  if (!claims.length) return <p className="muted">No claimed competitions yet.</p>;
+  if (!claims.length) return <p className="muted">No claimed tournaments yet.</p>;
   return (
     <>
-      <p className="muted" style={{ fontSize: 13 }}>
-        <VerifiedIcon verified /> verified by the scly.io admin · <VerifiedIcon verified={false} /> self-reported
-      </p>
       {seasons.map((s) => {
         const groups = new Map<string, DashClaim[]>();
         for (const c of claims.filter((x) => x.claim.season === s)) {
@@ -163,41 +133,24 @@ function Results({ claims, seasons, schools }: { claims: DashClaim[]; seasons: n
           if (!arr) groups.set(k, (arr = []));
           arr.push(c);
         }
-        const school = schools.find((x) => x.season === s);
         return (
           <div key={s}>
-            <h2 className="season-head">
-              {seasonLabel(s)}
-              {school ? ` · ${school.school_name}` : ""}
-            </h2>
+            <SeasonHead season={s} extra={schools.find((x) => x.season === s)?.school_name} />
             {[...groups.values()]
               .sort((a, b) => b[0].tournamentDate.localeCompare(a[0].tournamentDate))
               .map((g) => {
                 const first = g[0];
-                const verified = g.filter(isVerified).length;
                 return (
-                  <section key={`${first.claim.tournament_id}|${first.claim.entry_id}`} className="card">
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                      <div>
-                        {first.resultUrl ? <TournamentLink url={first.resultUrl} name={first.tournamentName} bold /> : <b>{first.tournamentName}</b>}
-                        <div className="muted">
-                          {first.tournamentDate}
-                          {first.tournamentLevel ? ` · ${first.tournamentLevel}` : ""} · {first.entryText}
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
-                        <span className="stat" style={{ margin: 0 }}>
-                          <b>{g.length}</b>
-                          <span>{g.length === 1 ? "event" : "events"}</span>
-                        </span>
-                        <span className="stat" style={{ margin: 0 }}>
-                          <b>
-                            {verified}/{g.length}
-                          </b>
-                          <span>verified</span>
-                        </span>
-                      </div>
-                    </div>
+                  <ResultCard
+                    key={`${first.claim.tournament_id}|${first.claim.entry_id}`}
+                    url={first.resultUrl}
+                    name={first.tournamentName}
+                    meta={`${first.tournamentDate}${first.tournamentLevel ? ` · ${first.tournamentLevel}` : ""} · ${first.entryText}`}
+                    stats={[
+                      { value: g.length, label: g.length === 1 ? "event" : "events" },
+                      { value: `${g.filter(isVerified).length}/${g.length}`, label: "verified" },
+                    ]}
+                  >
                     <ul className="ev-list">
                       {[...g]
                         .sort((a, b) => a.eventName.localeCompare(b.eventName))
@@ -209,7 +162,7 @@ function Results({ claims, seasons, schools }: { claims: DashClaim[]; seasons: n
                           </li>
                         ))}
                     </ul>
-                  </section>
+                  </ResultCard>
                 );
               })}
           </div>
@@ -233,42 +186,17 @@ function Events(props: { snaps: Map<number, PersonalSnapshot>; seasons: number[]
   }
   return (
     <>
-      <div className="chips">
-        {props.seasons.map((x) => (
-          <Link key={x} className={x === props.season ? "chip on" : "chip"} href={props.href(x)}>
-            {seasonLabel(x)}
-          </Link>
-        ))}
-      </div>
-      <section className="card flush scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Event</th>
-              <th className="n">Estimate</th>
-              <th className="n">Competitions</th>
-              <th>Places</th>
-              <th>Scope</th>
-            </tr>
-          </thead>
-          <tbody>
-            {s.events.map((e) => (
-              <tr key={e.eventDefId}>
-                <td>{e.name}</td>
-                <td className="n">
-                  <span className="pill">{usr(e.usr)}</span>
-                </td>
-                <td className="n">{e.competitions}</td>
-                <td className="muted">{(places.get(e.eventDefId) ?? []).join(", ") || "-"}</td>
-                <td className="muted">{e.comparable ? "National" : "Local only"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-      <p className="muted" style={{ fontSize: 12 }}>
-        Includes equivalent events from up to three earlier seasons, weighted less, as for team ratings.
-      </p>
+      <ChipRow items={props.seasons.map((x) => ({ key: x, label: seasonLabel(x), href: props.href(x), on: x === props.season }))} />
+      <EventTable
+        midLabel="Scope"
+        rows={s.events.map((e) => ({
+          key: e.eventDefId,
+          name: e.name,
+          usr: e.usr,
+          mid: e.comparable ? "National" : "Local",
+          places: (places.get(e.eventDefId) ?? []).join(", "),
+        }))}
+      />
     </>
   );
 }
@@ -300,8 +228,7 @@ function History({ snaps, seasons, label }: { snaps: Map<number, PersonalSnapsho
               <th className="n">USR</th>
               <th className="n">Season Trend</th>
               <th className="n">Events</th>
-              <th className="n">Competitions</th>
-              <th>Status</th>
+              <th className="n">Tournaments</th>
             </tr>
           </thead>
           <tbody>
@@ -311,12 +238,11 @@ function History({ snaps, seasons, label }: { snaps: Map<number, PersonalSnapsho
                 <tr key={s}>
                   <td>{seasonLabel(s)}</td>
                   <td className="n">
-                    <span className="pill">{usr(x.summaryUsr)}</span>
+                    <span className="pill">{x.summaryUsr?.toFixed(2)}</span>
                   </td>
-                  <td className="n">{x.trendState === "rated" ? usr(x.trendUsr) : "-"}</td>
+                  <td className="n">{x.trendState === "rated" ? x.trendUsr?.toFixed(2) : "-"}</td>
                   <td className="n">{x.ratedEvents}</td>
                   <td className="n">{x.competitions}</td>
-                  <td className="muted">{x.provisional ? "Provisional" : "Unofficial"}</td>
                 </tr>
               );
             })}

@@ -86,59 +86,72 @@ export interface MembershipRow {
   updated_at: string;
 }
 
-async function validateSchoolSeason(ctx: Ctx, schoolId: unknown, division: unknown, season: unknown) {
-  if (typeof schoolId !== "string" || !schoolId) throw new ValidationError("Choose a school.");
-  if (division !== "B" && division !== "C") throw new ValidationError("Choose Division B or C.");
-  const s = Number(season);
-  if (!Number.isInteger(s)) throw new ValidationError("Choose a season.");
-  const school = await schoolById(ctx.data, schoolId);
-  if (!school) throw new ValidationError("That school is not in the imported results.");
-  const seasons = await schoolSeasons(ctx.data, school.id);
-  if (!seasons.some((x) => x.division === division && x.season === s)) {
-    throw new ValidationError(`${school.name} has no imported Division ${division} results for that season.`);
-  }
-  return { school, division: division as "B" | "C", season: s };
-}
-
 /**
- * Attach the user to an existing school for one whole division and season
- * (starts unverified). Members can add any number of seasons, and different
- * schools in different seasons, but only one school per season (both
- * divisions at that one school are allowed). There are no partial seasons.
+ * Attach the user to an existing school for one or more whole division/season
+ * pairs (each starts unverified), all or nothing. Members can add any number
+ * of seasons, and different schools in different seasons, but only one school
+ * per season (both divisions at that one school are allowed). There are no
+ * partial seasons.
  */
-export async function joinSchool(ctx: Ctx, input: { schoolId: unknown; division: unknown; season: unknown }) {
+export async function joinSchoolSeasons(ctx: Ctx, input: { schoolId: unknown; seasons: unknown[] }): Promise<string[]> {
   const actor = await requireUser(ctx, { mutation: true });
-  const { school, division, season } = await validateSchoolSeason(ctx, input.schoolId, input.division, input.season);
+  if (!input.seasons.length) throw new ValidationError("Select at least one season.");
+  if (input.seasons.length > 60) throw new ValidationError("Too many seasons selected.");
+  if (typeof input.schoolId !== "string" || !input.schoolId) throw new ValidationError("Choose a school.");
+  const school = await schoolById(ctx.data, input.schoolId);
+  if (!school) throw new ValidationError("That school is not in the imported results.");
+  const available = await schoolSeasons(ctx.data, school.id);
+  // Each pick is "C:2026" (division:season).
+  const picks = [...new Set(input.seasons.map((x) => String(x)))].map((x) => {
+    const [division, raw] = x.split(":");
+    if (division !== "B" && division !== "C") throw new ValidationError("Choose Division B or C.");
+    const season = Number(raw);
+    if (!Number.isInteger(season)) throw new ValidationError("Choose a season.");
+    if (!available.some((y) => y.division === division && y.season === season)) {
+      throw new ValidationError(`${school.name} has no imported Division ${division} results for ${season - 1}-${String(season).slice(2)}.`);
+    }
+    return { division: division as "B" | "C", season };
+  });
+  picks.sort((x, y) => x.season - y.season || x.division.localeCompare(y.division));
   const at = ctx.now.toISOString();
   return tx(ctx.db, async (t) => {
-    const other = await row<{ school_name: string; division: string }>(
-      t,
-      `SELECT school_name, division FROM school_memberships WHERE user_id = ? AND season = ? AND school_id <> ?`,
-      [actor.userId, season, school.id],
-    );
-    if (other) {
-      throw new ConflictError(
-        `You are already affiliated with ${other.school_name} for ${season - 1}-${String(season).slice(2)}. You can only be at one school per season.`,
+    const ids: string[] = [];
+    for (const { division, season } of picks) {
+      const label = `${season - 1}-${String(season).slice(2)}`;
+      const other = await row<{ school_name: string }>(
+        t,
+        `SELECT school_name FROM school_memberships WHERE user_id = ? AND season = ? AND school_id <> ?`,
+        [actor.userId, season, school.id],
       );
+      if (other) {
+        throw new ConflictError(`You are already affiliated with ${other.school_name} for ${label}. You can only be at one school per season.`);
+      }
+      const dup = await row(t, `SELECT id FROM school_memberships WHERE user_id = ? AND school_id = ? AND division = ? AND season = ?`, [
+        actor.userId,
+        school.id,
+        division,
+        season,
+      ]);
+      if (dup) throw new ConflictError(`You already have Division ${division} ${label} at this school.`);
+      const id = newId("mem");
+      await run(
+        t,
+        `INSERT INTO school_memberships (id, user_id, school_id, school_name, division, season, revision, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, 'SELF_REPORTED', ?, ?)`,
+        [id, actor.userId, school.id, school.name, division, season, at, at],
+      );
+      await audit(t, { at, actorUserId: actor.userId, subjectType: "membership", subjectId: id, revision: 1, action: "create", toStatus: "SELF_REPORTED" });
+      ids.push(id);
     }
-    const dup = await row(t, `SELECT id FROM school_memberships WHERE user_id = ? AND school_id = ? AND division = ? AND season = ?`, [
-      actor.userId,
-      school.id,
-      division,
-      season,
-    ]);
-    if (dup) throw new ConflictError("You already have an affiliation with this school for that division and season.");
-    const id = newId("mem");
-    await run(
-      t,
-      `INSERT INTO school_memberships (id, user_id, school_id, school_name, division, season, revision, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, 'SELF_REPORTED', ?, ?)`,
-      [id, actor.userId, school.id, school.name, division, season, at, at],
-    );
-    await audit(t, { at, actorUserId: actor.userId, subjectType: "membership", subjectId: id, revision: 1, action: "create", toStatus: "SELF_REPORTED" });
     await markOnboarded(t, actor, at);
-    return id;
+    return ids;
   });
+}
+
+/** One division and season (see joinSchoolSeasons). */
+export async function joinSchool(ctx: Ctx, input: { schoolId: unknown; division: unknown; season: unknown }): Promise<string> {
+  const [id] = await joinSchoolSeasons(ctx, { schoolId: input.schoolId, seasons: [`${String(input.division)}:${String(input.season)}`] });
+  return id;
 }
 
 async function markOnboarded(t: Transaction, actor: Actor, at: string) {

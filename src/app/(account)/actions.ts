@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireUser, type Ctx } from "@/lib/accounts/actor";
-import { addClaims, editClaim, joinSchool, requestVerification, setDisplayName, setProfilePrivacy, withdrawClaim } from "@/lib/accounts/claims";
+import { addClaims, editClaim, joinSchoolSeasons, requestVerification, setDisplayName, setProfilePrivacy, withdrawClaim } from "@/lib/accounts/claims";
 import { AccessError, ConflictError, isDomainError } from "@/lib/accounts/errors";
 import { decideSubmission, type DecisionInput } from "@/lib/accounts/review";
 import { requestCtx, SESSION_COOKIE, secureCookies } from "@/lib/accounts/server";
@@ -76,11 +76,13 @@ export async function saveDisplayNameAction(fd: FormData) {
 export async function joinSchoolAction(fd: FormData) {
   await act(fd, "/dashboard", async (ctx) => {
     if (fd.get("displayName") !== null) await setDisplayName(ctx, fd.get("displayName"));
-    // "ds" = "C:2026" (one choice from the school's imported division/seasons).
-    const [division, season] = String(fd.get("ds") ?? "").split(":");
-    await joinSchool(ctx, { schoolId: fd.get("school"), division, season });
-    return { to: "/dashboard" };
-  }, "School affiliation added. It is unverified until an admin reviews it.");
+    // Each checked "ds" is "C:2026" (division:season); all are added together or none are.
+    const ids = await joinSchoolSeasons(ctx, { schoolId: fd.get("school"), seasons: fd.getAll("ds") });
+    return {
+      to: "/dashboard",
+      msg: `Added ${ids.length} season${ids.length === 1 ? "" : "s"}. Affiliations are unverified until an admin reviews them.`,
+    };
+  });
 }
 
 export async function privacyAction(fd: FormData) {

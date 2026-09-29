@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { Csrf, Flash } from "@/components/account";
 import { seasonLabel } from "@/components/plain";
 import { SubmitButton } from "@/components/submit-button";
+import { memberships, type MembershipRow } from "@/lib/accounts/claims";
 import { schoolById, schoolSeasons, searchSchools } from "@/lib/accounts/dataset";
 import { dataSource, pageUser } from "@/lib/accounts/server";
 import { joinSchoolAction, saveDisplayNameAction } from "../actions";
@@ -13,12 +14,12 @@ export const metadata: Metadata = { title: "Set up your account", robots: { inde
 
 export default async function Onboarding(props: PageProps<"/onboarding">) {
   const sp = (await props.searchParams) as Record<string, string | undefined>;
-  const { actor, csrf } = await pageUser("/onboarding", { allowNotOnboarded: true });
+  const { actor, csrf, ctx } = await pageUser("/onboarding", { allowNotOnboarded: true });
   const adding = sp.add === "1";
   if (actor.onboarded && !adding) redirect("/dashboard");
   const keep = adding ? "&add=1" : "";
   const step = !actor.displayName ? 1 : sp.school ? 3 : 2;
-  const steps = ["Display name", "School", "Division and season"];
+  const steps = ["Display name", "School", "Seasons"];
 
   return (
     <>
@@ -50,7 +51,7 @@ export default async function Onboarding(props: PageProps<"/onboarding">) {
       ) : step === 2 ? (
         <SchoolSearch q={sp.q ?? ""} keep={keep} />
       ) : (
-        <SchoolSeason schoolId={sp.school!} csrf={csrf} keep={keep} />
+        <SchoolSeason schoolId={sp.school!} csrf={csrf} keep={keep} taken={await memberships(ctx, actor.userId)} />
       )}
       <p className="note">
         Choosing a school does not verify you or give you any access to the school&apos;s records. Your affiliation starts as self-reported; you
@@ -99,7 +100,7 @@ async function SchoolSearch({ q, keep }: { q: string; keep: string }) {
   );
 }
 
-async function SchoolSeason({ schoolId, csrf, keep }: { schoolId: string; csrf: string; keep: string }) {
+async function SchoolSeason({ schoolId, csrf, keep, taken }: { schoolId: string; csrf: string; keep: string; taken: MembershipRow[] }) {
   const school = await schoolById(dataSource, schoolId);
   if (!school) {
     return (
@@ -109,6 +110,13 @@ async function SchoolSeason({ schoolId, csrf, keep }: { schoolId: string; csrf: 
     );
   }
   const seasons = await schoolSeasons(dataSource, school.id);
+  // Why a season can't be picked: already added here, or at another school that season.
+  const blocked = (division: string, season: number) => {
+    if (taken.some((m) => m.school_id === school.id && m.division === division && m.season === season)) return "already added";
+    const other = taken.find((m) => m.school_id !== school.id && m.season === season);
+    return other ? `you're at ${other.school_name}` : null;
+  };
+  const divisions = [...new Set(seasons.map((s) => s.division))].sort().reverse();
   return (
     <section className="card">
       <h2>
@@ -118,23 +126,35 @@ async function SchoolSeason({ schoolId, csrf, keep }: { schoolId: string; csrf: 
         <Csrf token={csrf} />
         <input type="hidden" name="school" value={school.id} />
         <input type="hidden" name="back" value={`/onboarding?school=${encodeURIComponent(school.id)}${keep}`} />
-        <fieldset className="field" style={{ border: 0, padding: 0 }}>
-          <legend className="label">Which division and season were you on this school&apos;s team?</legend>
-          <ul className="choice-list card" style={{ padding: 0, marginTop: 6 }}>
-            {seasons.map((s, i) => (
-              <li key={`${s.division}:${s.season}`}>
-                <label>
-                  <input type="radio" name="ds" value={`${s.division}:${s.season}`} required defaultChecked={i === 0} />
-                  <span>
-                    Division {s.division} · {seasonLabel(s.season)}
-                  </span>
-                </label>
-              </li>
-            ))}
-          </ul>
-          <span className="hint">Add each season separately. You can be at different schools in different seasons, but only one school per season.</span>
-        </fieldset>
-        <SubmitButton>Save affiliation</SubmitButton> <Link href={`/onboarding?x=1${keep}`}>Choose a different school</Link>
+        {divisions.map((d) => (
+          <fieldset key={d} className="season-set">
+            <legend className="label">
+              Division {d}: which seasons were you on {school.name}&apos;s team?
+            </legend>
+            <ul className="check-grid">
+              {seasons
+                .filter((s) => s.division === d)
+                .map((s) => {
+                  const why = blocked(s.division, s.season);
+                  return (
+                    <li key={`${s.division}:${s.season}`}>
+                      <label className={why ? "off" : undefined}>
+                        <input type="checkbox" name="ds" value={`${s.division}:${s.season}`} disabled={Boolean(why)} />
+                        <span>
+                          {seasonLabel(s.season)}
+                          {why ? <span className="why"> ({why})</span> : null}
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+            </ul>
+          </fieldset>
+        ))}
+        <p className="hint muted" style={{ fontSize: 12 }}>
+          Check every season you were on the team. You can be at different schools in different seasons, but only one school per season.
+        </p>
+        <SubmitButton>Save selected seasons</SubmitButton> <Link href={`/onboarding?x=1${keep}`}>Choose a different school</Link>
       </form>
     </section>
   );

@@ -976,3 +976,64 @@ button:disabled {
   margin-left: auto;
   font-size: 13px;
 }
+.season-set {
+  border: 0;
+  padding: 0;
+  margin: 0 0 14px;
+}
+.check-grid {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+}
+.check-grid label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  cursor: pointer;
+  font-size: 14px;
+}
+.check-grid label:has(input:checked) {
+  border-color: var(--accent);
+  background: #eef4ff;
+}
+.check-grid label.off {
+  cursor: default;
+  color: var(--muted);
+  background: var(--bg);
+}
+.check-grid input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+.check-grid .why {
+  font-size: 12px;
+}
+.btn-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--loss);
+  font-weight: 400;
+  font-size: 14px;
+}
+.btn-link:hover {
+  text-decoration: underline;
+}
+a.btn.btn-quiet {
+  background: transparent;
+  color: var(--navy);
+  border: 1px solid var(--line);
+}
+a.btn.btn-quiet:hover {
+  background: var(--card);
+  border-color: var(--navy);
+}
