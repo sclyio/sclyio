@@ -204,8 +204,12 @@ h2 {
   gap: 4px;
   border-bottom: 1px solid var(--line);
   margin: 14px 0 16px;
+  overflow-x: auto; /* many tabs scroll on narrow screens instead of widening the page */
+  scrollbar-width: none;
 }
 .tabs a {
+  flex-shrink: 0;
+  white-space: nowrap;
   padding: 8px 14px;
   color: var(--muted);
   font-weight: 600;
@@ -943,4 +947,13 @@ button:disabled {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+.vmark {
+  display: inline-flex;
+  vertical-align: -2px;
+  color: #9aa4b2;
+  margin-left: 4px;
+}
+.vmark.on {
+  color: var(--accent);
 }

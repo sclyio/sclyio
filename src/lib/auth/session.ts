@@ -82,6 +82,7 @@ export interface SessionRecord {
   expiresAt: string;
   displayName: string | null;
   onboardedAt: string | null;
+  profilePrivate: boolean;
 }
 
 /** Active, unexpired, unrevoked session for a cookie token, joined with its trusted identity. */
@@ -90,7 +91,7 @@ export async function resolveSession(db: Client, token: string | null | undefine
   const r = await row<Record<string, unknown>>(
     db,
     `SELECT s.id, s.user_id, s.oauth_account_id, s.authenticated_at, s.expires_at, s.revoked_at,
-            o.provider, o.provider_email, o.email_verified, o.user_id AS o_user, u.display_name, u.onboarded_at
+            o.provider, o.provider_email, o.email_verified, o.user_id AS o_user, u.display_name, u.onboarded_at, u.profile_private
      FROM sessions s JOIN oauth_accounts o ON o.id = s.oauth_account_id JOIN users u ON u.id = s.user_id
      WHERE s.id = ?`,
     [sha256(token)],
@@ -108,6 +109,7 @@ export async function resolveSession(db: Client, token: string | null | undefine
     expiresAt: r.expires_at as string,
     displayName: (r.display_name as string | null) ?? null,
     onboardedAt: (r.onboarded_at as string | null) ?? null,
+    profilePrivate: r.profile_private === 1,
   };
 }
 

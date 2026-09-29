@@ -95,3 +95,35 @@ export function libsqlSource(client: Pick<Client, "execute">) {
     get: <T = Row>(sqlText: string, args?: InArgs) => row<T>(client, sqlText, args),
   };
 }
+
+/** Newest migration this code needs. A test keeps it in step with accounts/migrations. */
+export const REQUIRED_ACCOUNTS_MIGRATION = "0002_profiles_and_trend.sql";
+
+export class AccountsSchemaError extends Error {
+  constructor(missing: string) {
+    super(`The accounts database is missing migration ${missing}. Run \`npm run accounts:migrate\` against it (see README).`);
+    this.name = "AccountsSchemaError";
+  }
+}
+
+let schemaChecked: Promise<void> | null = null;
+
+/** Verify once per process that the accounts database has been migrated far enough. */
+export function ensureAccountsSchema(db: Client = accountsDb()): Promise<void> {
+  if (!schemaChecked) {
+    schemaChecked = (async () => {
+      let applied: string[] = [];
+      try {
+        applied = (await rows<{ name: string }>(db, `SELECT name FROM _migrations`)).map((r) => r.name);
+      } catch {
+        // No _migrations table: never migrated.
+      }
+      if (!applied.includes(REQUIRED_ACCOUNTS_MIGRATION)) throw new AccountsSchemaError(REQUIRED_ACCOUNTS_MIGRATION);
+    })().catch((e) => {
+      schemaChecked = null; // re-check after the operator migrates
+      console.error(`[scly.io] ${e instanceof Error ? e.message : String(e)}`);
+      throw e;
+    });
+  }
+  return schemaChecked;
+}

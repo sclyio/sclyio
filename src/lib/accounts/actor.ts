@@ -28,6 +28,7 @@ export interface Actor {
   oauthAccountId: string;
   displayName: string | null;
   onboarded: boolean;
+  profilePrivate: boolean;
   isAdmin: boolean;
   authenticatedAt: string;
 }
@@ -39,6 +40,7 @@ function toActor(s: SessionRecord): Actor {
     oauthAccountId: s.oauthAccountId,
     displayName: s.displayName,
     onboarded: Boolean(s.onboardedAt),
+    profilePrivate: s.profilePrivate,
     // Computed from the persisted Google identity on every request; there is no stored role.
     isAdmin: isAdminIdentity({ provider: s.provider, providerEmail: s.providerEmail, emailVerified: s.emailVerified }),
     authenticatedAt: s.authenticatedAt,

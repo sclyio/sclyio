@@ -52,6 +52,17 @@ export async function teamHistory(teamId: string, division: string): Promise<His
   return rows.map(toHistoryPoint);
 }
 
+/** Every refit, in every season, at which this school's School Potential was rated in one division. One query. */
+export async function schoolHistory(schoolId: string, division: string): Promise<HistoryPoint[]> {
+  const rows = await all(
+    `SELECT ${HISTORY_COLUMNS}
+     FROM snapshots s JOIN overall_ratings o ON o.snapshot_id = s.id AND o.entity_id = ?
+     WHERE s.build_id = ? AND s.division = ? AND s.view = 'school' ORDER BY s.as_of`,
+    [schoolId, await buildId(), division],
+  );
+  return rows.map(toHistoryPoint);
+}
+
 function toHistoryPoint(o: Record<string, unknown>): HistoryPoint {
   const n = (v: unknown) => (v === null || v === undefined ? null : (v as number));
   return {

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { accountsDb } from "@/lib/accounts/db";
+import { accountsDb, AccountsSchemaError, ensureAccountsSchema } from "@/lib/accounts/db";
 import { OAUTH_COOKIE, SESSION_COOKIE, secureCookies } from "@/lib/accounts/server";
 import { appOrigin, finishGoogleLogin } from "@/lib/auth/google";
 import { safeReturnTo } from "@/lib/auth/return-to";
@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
   let session;
   let onboarded = false;
   try {
+    await ensureAccountsSchema(db);
     const identity = await finishGoogleLogin(current, { state: pending.s, nonce: pending.n, codeVerifier: pending.v });
     const account = await completeLogin(db, identity, now);
     // Rotate: any previous session on this browser ends.
@@ -43,6 +44,7 @@ export async function GET(req: NextRequest) {
     onboarded = Boolean(u.rows[0]?.[0]);
   } catch (e) {
     if (e instanceof LoginError) return fail(e.code);
+    if (e instanceof AccountsSchemaError) return fail("unavailable");
     // Log only the error class: never codes, tokens, or secrets.
     console.warn(`google sign-in failed: ${e instanceof Error ? e.name : "error"}`);
     return fail("failed");

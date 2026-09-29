@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireUser, type Ctx } from "@/lib/accounts/actor";
-import { addClaims, editClaim, joinSchool, requestVerification, setDisplayName, transferSchool, withdrawClaim } from "@/lib/accounts/claims";
+import { addClaims, editClaim, joinSchool, requestVerification, setDisplayName, setProfilePrivacy, withdrawClaim } from "@/lib/accounts/claims";
 import { AccessError, ConflictError, isDomainError } from "@/lib/accounts/errors";
 import { decideSubmission, type DecisionInput } from "@/lib/accounts/review";
 import { requestCtx, SESSION_COOKIE, secureCookies } from "@/lib/accounts/server";
@@ -83,11 +83,11 @@ export async function joinSchoolAction(fd: FormData) {
   }, "School affiliation added. It is unverified until an admin reviews it.");
 }
 
-export async function transferAction(fd: FormData) {
+export async function privacyAction(fd: FormData) {
+  const isPrivate = fd.get("private") === "1";
   await act(fd, "/settings/profile", async (ctx) => {
-    await transferSchool(ctx, { membershipId: fd.get("membership"), schoolId: fd.get("school"), effective: fd.get("effective") });
-    return { to: "/settings/profile" };
-  }, "Transfer recorded. Your earlier claims stay with your previous school.");
+    await setProfilePrivacy(ctx, isPrivate);
+  }, isPrivate ? "Your profile is now private." : "Your profile is now public.");
 }
 
 export async function addClaimsAction(fd: FormData) {

@@ -1,11 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { Avatar, RatingBadge, seasonRange, Tabs, teamLabel, TournamentLink, usr } from "@/components/plain";
+import { VerifiedIcon } from "@/components/account";
+import { Avatar, RatingBadge, seasonLabel, seasonRange, Tabs, teamLabel, TournamentLink, usr } from "@/components/plain";
+import { RatingHistory } from "@/components/rating-history";
+import { accountsDb, ensureAccountsSchema } from "@/lib/accounts/db";
+import { schoolMembers, type SchoolMember } from "@/lib/accounts/public";
 import { entityLabel } from "@/lib/queries/common";
-import { detailSnapshotId, eventBreakdown, history, schoolProfile } from "@/lib/queries/profiles";
+import { detailSnapshotId, eventBreakdown, history, schoolHistory, schoolProfile } from "@/lib/queries/profiles";
 
 export const dynamic = "force-dynamic";
+
+const TABS = ["teams", "events", "tournaments", "history", "members"] as const;
 
 export async function generateMetadata(props: PageProps<"/schools/[slug]">): Promise<Metadata> {
   const { slug } = await props.params;
@@ -17,16 +23,22 @@ export default async function SchoolPage(props: PageProps<"/schools/[slug]">) {
   const { slug } = await props.params;
   const id = decodeURIComponent(slug);
   const sp = (await props.searchParams) as Record<string, string | undefined>;
-  const tab = sp.tab === "events" || sp.tab === "tournaments" ? sp.tab : "teams";
+  const tab = (TABS as readonly string[]).includes(sp.tab ?? "") ? (sp.tab as (typeof TABS)[number]) : "teams";
   const p = await schoolProfile(id);
   if (!p) notFound();
   const pools = p.potential;
   const chosen = pools.find((x) => `${x.division}-${x.season}` === sp.pool) ?? pools.find((x) => x.rating) ?? pools[0];
   const hist = chosen ? await history("school", id, chosen.division, chosen.season) : [];
-  const events = chosen && tab === "events" ? await eventBreakdown("school", id, chosen.division, chosen.season, detailSnapshotId(hist)) : [];
+  const [events, divisionHist, members] = await Promise.all([
+    chosen && tab === "events" ? eventBreakdown("school", id, chosen.division, chosen.season, detailSnapshotId(hist)) : Promise.resolve([]),
+    chosen && tab === "history" ? schoolHistory(id, chosen.division) : Promise.resolve([]),
+    tab === "members" ? ensureAccountsSchema().then(() => schoolMembers(accountsDb(), id)).catch(() => null) : Promise.resolve(null),
+  ]);
   const r = chosen?.rating;
+  const latest = [...hist].reverse().find((h) => h.usr !== null) ?? null;
   const base = `/schools/${encodeURIComponent(id)}`;
   const q = (extra: string) => `${base}?${chosen ? `pool=${chosen.division}-${chosen.season}&` : ""}${extra}`;
+  const names = new Map(p.appearances.map((a) => [String(a.id), String(a.name)]));
 
   return (
     <>
@@ -48,12 +60,15 @@ export default async function SchoolPage(props: PageProps<"/schools/[slug]">) {
               ))}
             </div>
           </div>
-          <RatingBadge
-            label="SCHOOL USR"
-            value={r?.usr}
-            coverage={r ? r.comparable_events / r.official_events : undefined}
-            sub={r?.national_rank ? `#${r.national_rank} Division ${chosen!.division}` : r ? r.status : "Unrated"}
-          />
+          <div className="badges">
+            <RatingBadge
+              label="SCHOOL USR"
+              value={r?.usr}
+              coverage={r ? r.comparable_events / r.official_events : undefined}
+              sub={r?.national_rank ? `#${r.national_rank} Division ${chosen!.division}` : r ? r.status : "Unrated"}
+            />
+            <RatingBadge label="SEASON TREND" value={latest?.trendUsr} sub={chosen ? seasonLabel(chosen.season) : undefined} trend />
+          </div>
         </div>
       </section>
 
@@ -63,6 +78,8 @@ export default async function SchoolPage(props: PageProps<"/schools/[slug]">) {
           { key: "teams", label: "Teams", href: q("") },
           { key: "events", label: "Events", href: q("tab=events") },
           { key: "tournaments", label: "Tournaments", href: q("tab=tournaments") },
+          { key: "history", label: "Rating History", href: q("tab=history") },
+          { key: "members", label: "Members", href: q("tab=members") },
         ]}
       />
 
@@ -110,6 +127,16 @@ export default async function SchoolPage(props: PageProps<"/schools/[slug]">) {
             </tbody>
           </table>
         </section>
+      ) : tab === "history" ? (
+        <RatingHistory
+          hist={divisionHist}
+          names={names}
+          label={`${p.school.schoolName} Division ${chosen?.division ?? ""}`}
+          more={Number(sp.more) || 0}
+          moreHref={(n) => q(`tab=history&more=${n}`)}
+        />
+      ) : tab === "members" ? (
+        <Members members={members} />
       ) : (
         <section className="card flush">
           <ul className="rows">
@@ -129,6 +156,54 @@ export default async function SchoolPage(props: PageProps<"/schools/[slug]">) {
           </ul>
         </section>
       )}
+    </>
+  );
+}
+
+function Members({ members }: { members: { members: SchoolMember[]; privateCount: number } | null }) {
+  if (!members) return <p className="muted">Members are temporarily unavailable.</p>;
+  const groups = new Map<string, SchoolMember[]>();
+  for (const m of members.members) {
+    const k = `${m.season}|${m.division}`;
+    let arr = groups.get(k);
+    if (!arr) groups.set(k, (arr = []));
+    arr.push(m);
+  }
+  return (
+    <>
+      <p className="muted" style={{ fontSize: 13 }}>
+        Members who added this school to their scly.io profile. <VerifiedIcon verified /> = affiliation verified by the scly.io admin;{" "}
+        <VerifiedIcon verified={false} /> = self-reported.
+      </p>
+      {groups.size === 0 ? <p className="muted">No public members yet.</p> : null}
+      {[...groups.entries()].map(([k, list]) => {
+        const [season, division] = k.split("|");
+        return (
+          <section key={k} className="card flush">
+            <div className="card-head">
+              <h2 style={{ margin: 0 }}>
+                {seasonLabel(Number(season))} · Division {division}
+              </h2>
+              <span className="muted">{list.length}</span>
+            </div>
+            <ul className="rows">
+              {list.map((m) => (
+                <li key={m.userId} className="row">
+                  <span className="who">
+                    <Link href={`/members/${m.userId}`}>{m.displayName}</Link>
+                    <VerifiedIcon verified={m.verified} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+      {members.privateCount ? (
+        <p className="muted" style={{ fontSize: 13 }}>
+          {members.privateCount} more member{members.privateCount === 1 ? " has" : "s have"} a private profile.
+        </p>
+      ) : null}
     </>
   );
 }

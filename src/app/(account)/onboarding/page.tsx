@@ -35,7 +35,7 @@ export default async function Onboarding(props: PageProps<"/onboarding">) {
       {step === 1 ? (
         <section className="card">
           <h2>Choose a display name</h2>
-          <p className="muted">Shown to the scly.io admin when you request verification. Your profile is private; your Google email is never shown.</p>
+          <p className="muted">Shown on your public member profile and your school&apos;s Members tab (you can make your profile private in Settings). Your Google email is never shown.</p>
           <form action={saveDisplayNameAction}>
             <Csrf token={csrf} />
             <input type="hidden" name="back" value={`/onboarding?x=1${keep}`} />
@@ -132,7 +132,7 @@ async function SchoolSeason({ schoolId, csrf, keep }: { schoolId: string; csrf: 
               </li>
             ))}
           </ul>
-          <span className="hint">Add other seasons later from Settings. One affiliation per division and season; use Transfer for a mid-season change.</span>
+          <span className="hint">Add each season separately. You can be at different schools in different seasons, but only one school per season.</span>
         </fieldset>
         <SubmitButton>Save affiliation</SubmitButton> <Link href={`/onboarding?x=1${keep}`}>Choose a different school</Link>
       </form>

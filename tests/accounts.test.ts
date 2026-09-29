@@ -1,8 +1,9 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { requireAdmin, requireUser, type Ctx } from "../src/lib/accounts/actor";
-import { addClaims, editClaim, joinSchool, requestVerification, setDisplayName, transferSchool, withdrawClaim } from "../src/lib/accounts/claims";
+import { addClaims, editClaim, joinSchool, requestVerification, setDisplayName, setProfilePrivacy, withdrawClaim } from "../src/lib/accounts/claims";
+import { publicProfile, schoolMembers } from "../src/lib/accounts/public";
 import { dashboard } from "../src/lib/accounts/dashboard";
-import { row, rows, run } from "../src/lib/accounts/db";
+import { ensureAccountsSchema, REQUIRED_ACCOUNTS_MIGRATION, row, rows, run } from "../src/lib/accounts/db";
 import { AccessError, ConflictError, ValidationError } from "../src/lib/accounts/errors";
 import { adminQueue, decideClaim, decideMembership, decideSubmission } from "../src/lib/accounts/review";
 import { ADMIN_EMAIL, isAdminIdentity, normalizeEmail } from "../src/lib/auth/policy";
@@ -55,6 +56,15 @@ const rejects = async (p: Promise<unknown>, cls: new (...a: never[]) => Error, c
 };
 
 /* ------------------------------------------------------------------ */
+
+describe("accounts schema", () => {
+  it("the code's required migration is the newest file, and a fresh database passes the check", async () => {
+    const fs = await import("node:fs");
+    const files = fs.readdirSync("accounts/migrations").filter((f: string) => f.endsWith(".sql")).sort();
+    expect(REQUIRED_ACCOUNTS_MIGRATION).toBe(files[files.length - 1]);
+    await ensureAccountsSchema(w.db);
+  });
+});
 
 describe("administrator policy", () => {
   it("accepts only the exact verified Google email", () => {
@@ -198,7 +208,7 @@ describe("memberships and claims", () => {
     );
     await rejects(joinSchool(s.ctx(), { schoolId: "no-such-school", division: "C", season: 2026 }), ValidationError);
     await rejects(joinSchool(s.ctx(), { schoolId: ids.alder, division: "C", season: 1999 }), ValidationError);
-    await rejects(joinSchool(s.ctx(), { schoolId: ids.birch, division: "C", season: 2026 }), ConflictError); // one open affiliation per season
+    await rejects(joinSchool(s.ctx(), { schoolId: ids.birch, division: "C", season: 2026 }), ConflictError); // two schools at the same time
   });
 
   it("stores one claim per event, lets partners share a result, and blocks multi-team claims", async () => {
@@ -232,22 +242,58 @@ describe("memberships and claims", () => {
     expect(r).toMatchObject({ revision: 2, status: "SELF_REPORTED", entry_id: ids.entry(w.t.a, 2) });
   });
 
-  it("a transfer ends the old affiliation without touching past claims or carrying verification", async () => {
-    const s = await student("sub-transfer");
-    const cb = await ids.ev(w.t.a, "Codebusters");
-    const [claim] = await addClaims(s.ctx(), { membershipId: s.membershipId, tournamentId: w.t.a, entryId: ids.entry(w.t.a, 1), tournamentEventIds: [cb] });
-    await run(w.db, `UPDATE school_memberships SET status = 'VERIFIED' WHERE id = ?`, [s.membershipId]);
-    const next = await transferSchool(s.ctx(), { membershipId: s.membershipId, schoolId: ids.birch, effective: "2026-01-20" });
-    const newM = await row<{ status: string; starts_on: string }>(w.db, `SELECT status, starts_on FROM school_memberships WHERE id = ?`, [next]);
-    expect(newM).toMatchObject({ status: "SELF_REPORTED", starts_on: "2026-01-20" });
-    const oldM = await row<{ status: string; ends_on: string }>(w.db, `SELECT status, ends_on FROM school_memberships WHERE id = ?`, [s.membershipId]);
-    expect(oldM).toMatchObject({ status: "VERIFIED", ends_on: "2026-01-20" });
-    expect((await row<{ membership_id: string }>(w.db, `SELECT membership_id FROM participation_claims WHERE id = ?`, [claim]))!.membership_id).toBe(s.membershipId);
-    // The old affiliation cannot take claims after it ended; the new one cannot take earlier ones.
-    const late = await ids.ev(w.t.c, "Codebusters");
-    await rejects(addClaims(s.ctx(), { membershipId: s.membershipId, tournamentId: w.t.c, entryId: ids.entry(w.t.c, 1), tournamentEventIds: [late] }), ValidationError);
-    await rejects(addClaims(s.ctx(), { membershipId: next, tournamentId: w.t.a, entryId: ids.entry(w.t.a, 3), tournamentEventIds: [cb] }), ValidationError);
-    await addClaims(s.ctx(), { membershipId: next, tournamentId: w.t.c, entryId: ids.entry(w.t.c, 3), tournamentEventIds: [late] });
+  it("allows several seasons and schools over time, but only one school per season and no partial seasons", async () => {
+    const me = await signIn(w, "sub-multi", "multi@example.test");
+    await setDisplayName(me.ctx(), "Multi School");
+    await joinSchool(me.ctx(), { schoolId: ids.alder, division: "C", season: 2026 });
+    // Earlier season at a different school is fine.
+    await joinSchool(me.ctx(), { schoolId: ids.birch, division: "C", season: 2025 });
+    // Same school, other division, same season: still one school.
+    await joinSchool(me.ctx(), { schoolId: ids.alder, division: "B", season: 2026 });
+    // A different school in a season already taken, in either division, is refused.
+    await rejects(joinSchool(me.ctx(), { schoolId: ids.birch, division: "B", season: 2026 }), ConflictError);
+    await rejects(joinSchool(me.ctx(), { schoolId: ids.alder, division: "C", season: 2025 }), ConflictError);
+    // Partial-season fields are not accepted: whatever is sent, the affiliation covers the whole season.
+    const cols = await rows<{ starts_on: string | null; ends_on: string | null }>(w.db, `SELECT starts_on, ends_on FROM school_memberships WHERE user_id = ?`, [me.userId]);
+    expect(cols.every((c) => c.starts_on === null && c.ends_on === null)).toBe(true);
+    await rejects(
+      joinSchool(me.ctx(), { schoolId: ids.birch, division: "B", season: 2026, startsOn: "2026-01-20" } as Parameters<typeof joinSchool>[1]),
+      ConflictError,
+    );
+  });
+
+  it("public profiles and school member lists respect privacy and hide rejected affiliations", async () => {
+    const pub = await student("sub-public", "Public Pat");
+    const priv = await student("sub-private", "Private Pia");
+    await setProfilePrivacy(priv.ctx(), true);
+    await rejects(setProfilePrivacy({ ...pub.ctx(), csrf: null }, true), AccessError, "csrf");
+    await requestVerification(pub.ctx(), { membershipId: pub.membershipId, includeMembership: true, claimIds: [], explanation: "" });
+    const a = await admin();
+    await decideMembership(a.ctx(), { id: pub.membershipId, revision: 1, decision: "VERIFIED", privateNote: "secret-admin-note" });
+    const rej = await student("sub-rejected", "Rejected Rae");
+    await requestVerification(rej.ctx(), { membershipId: rej.membershipId, includeMembership: true, claimIds: [], explanation: "" });
+    await decideMembership(a.ctx(), { id: rej.membershipId, revision: 1, decision: "REJECTED", publicReason: "Not on roster." });
+
+    const list = await schoolMembers(w.db, ids.alder);
+    const names = list.members.map((m) => m.displayName);
+    expect(names).toContain("Public Pat");
+    expect(names).not.toContain("Private Pia");
+    expect(names).not.toContain("Rejected Rae");
+    expect(list.members.find((m) => m.displayName === "Public Pat")!.verified).toBe(true);
+    expect(list.members.filter((m) => m.displayName !== "Public Pat").every((m) => !m.verified)).toBe(true);
+    expect(list.privateCount).toBeGreaterThanOrEqual(1);
+
+    const now = new Date();
+    const seen = await publicProfile(w.db, w.data, pub.userId, null, now);
+    expect(seen?.displayName).toBe("Public Pat");
+    const json = JSON.stringify(seen);
+    for (const secret of ["@example.test", "sub-public", "secret-admin-note", pub.token]) expect(json).not.toContain(secret);
+    expect(await publicProfile(w.db, w.data, priv.userId, null, now)).toBeNull();
+    expect(await publicProfile(w.db, w.data, priv.userId, pub.userId, now)).toBeNull();
+    expect((await publicProfile(w.db, w.data, priv.userId, priv.userId, now))?.isPrivate).toBe(true); // owner preview
+    expect(await publicProfile(w.db, w.data, "usr_does_not_exist", null, now)).toBeNull();
+    await setProfilePrivacy(priv.ctx(), false);
+    expect((await schoolMembers(w.db, ids.alder)).members.map((m) => m.displayName)).toContain("Private Pia");
   });
 });
 
@@ -332,7 +378,7 @@ describe("unofficial personal USR", () => {
     const none = aggregatePersonal([]);
     expect(none).toMatchObject({ state: "no_eligible", summaryUsr: null, summaryZ: null });
     const local = aggregatePersonal([
-      { claimId: "c", status: "PENDING", verified: false, tournamentId: "t", eventDefId: "e", eventName: "E", outcome: "counted", reason: null, a: 1, w: 1, comparable: false },
+      { claimId: "c", status: "PENDING", verified: false, tournamentId: "t", season: 2026, eventDefId: "e", eventName: "E", outcome: "counted", reason: null, a: 1, w: 1, comparable: false },
     ]);
     expect(local.state).toBe("insufficient_comparable"); // local estimates are not averaged into a summary
     expect(local.summaryUsr).toBeNull();
@@ -425,6 +471,31 @@ describe("unofficial personal USR", () => {
     } finally {
       await w.dataClient.execute({ sql: `UPDATE event_results SET place = 2 WHERE entry_id = ? AND tournament_event_id = ?`, args: [ids.entry(w.t.b, 2), fermi] });
     }
+  });
+
+  it("USR counts earlier seasons' equivalent events; Season Trend counts only the rated season", async () => {
+    const me = await signIn(w, "sub-trend", "trend@example.test");
+    await setDisplayName(me.ctx(), "Trend Tester");
+    const m25 = await joinSchool(me.ctx(), { schoolId: ids.alder, division: "C", season: 2025 });
+    const m26 = await joinSchool(me.ctx(), { schoolId: ids.alder, division: "C", season: 2026 });
+    await addClaims(me.ctx(), { membershipId: m25, tournamentId: w.t.prev, entryId: ids.entry(w.t.prev, 1), tournamentEventIds: [await ids.ev(w.t.prev, "Codebusters"), await ids.ev(w.t.prev, "Fermi Questions")] });
+    await addClaims(me.ctx(), { membershipId: m26, tournamentId: w.t.b, entryId: ids.entry(w.t.b, 1), tournamentEventIds: [await ids.ev(w.t.b, "Codebusters")] });
+    const s26 = (await personalRating(w.db, w.data, me.userId, "C", 2026, new Date())).snapshot!;
+    const prevCb = s26.claims.find((c) => c.season === 2025 && c.eventName === "Codebusters")!;
+    const prevFermi = s26.claims.find((c) => c.season === 2025 && c.outcome !== "counted")!;
+    expect(prevCb.outcome).toBe("counted"); // equivalent event, carried with its season weight
+    expect(prevCb.eventDefId).toBe("C-2026-codebusters");
+    expect(prevFermi.reason).toMatch(/no equivalent official event/); // not mapped across seasons
+    expect(s26.events.find((e) => e.name === "Codebusters")!.claims).toBe(2);
+    expect(s26.trendState).toBe("rated");
+    expect(s26.summaryUsr).not.toBeCloseTo(s26.trendUsr!, 6); // USR uses both seasons, the trend only 2026
+    // The trend equals the method applied to the 2026 claim alone.
+    const only26 = aggregatePersonal(s26.claims.filter((c) => c.season === 2026));
+    expect(s26.trendZ).toBeCloseTo(only26.summaryZ!, 12);
+    // The 2025 rating stands on its own season's refit.
+    const s25 = (await personalRating(w.db, w.data, me.userId, "C", 2025, new Date())).snapshot!;
+    expect(s25.state).toBe("rated");
+    expect(s25.summaryZ).toBeCloseTo(s25.trendZ!, 12);
   });
 
   it("claims in events without a model estimate or on unclaimed events add nothing", async () => {

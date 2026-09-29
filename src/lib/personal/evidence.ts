@@ -12,6 +12,9 @@ import { COUNTED_STATUSES, type ClaimEvidence } from "./rating";
  *    the season's latest event-detail team snapshot. All observations of one
  *    tournament event share one weight, so w = weight / n;
  *  - comparability: the team's component in that snapshot's event fit.
+ * Claims from the three seasons before the rated season count toward the
+ * event they are equivalent to this season (the engine's pools: same
+ * equivalence group), with the season weights already in w.
  * Nothing falls back to a team's overall rating or a later event rating.
  */
 
@@ -107,11 +110,34 @@ async function loadTournament(data: DataSource, id: string): Promise<TournamentB
   };
 }
 
+/** Official events of the rated season, and which event definitions (any season) count toward each. */
+async function targetEvents(data: DataSource, division: string, season: number) {
+  const official = await data.all<{ id: string; name: string; equivalence_group: string | null }>(
+    `SELECT id, name, equivalence_group FROM event_definitions WHERE division = ? AND season = ? AND official = 1`,
+    [division, season],
+  );
+  const target = new Map<string, { id: string; name: string }>();
+  for (const o of official) target.set(o.id, o);
+  const groups = official.filter((o) => o.equivalence_group);
+  if (groups.length) {
+    const members = await data.all<{ id: string; equivalence_group: string }>(
+      `SELECT id, equivalence_group FROM event_definitions WHERE division = ? AND equivalence_group IN (${groups.map(() => "?").join(",")})`,
+      [division, ...groups.map((g) => g.equivalence_group!)],
+    );
+    for (const m of members) {
+      const o = groups.find((g) => g.equivalence_group === m.equivalence_group)!;
+      if (!target.has(m.id)) target.set(m.id, o);
+    }
+  }
+  return target;
+}
+
 export async function loadEvidence(
   data: DataSource,
   claims: PersonalClaimInput[],
   snapshot: RatingSnapshotRef | null,
   verifiedIds: Set<string>,
+  rated: { division: string; season: number },
 ): Promise<ClaimEvidence[]> {
   const bundles = new Map<string, Promise<TournamentBundle | null>>();
   const bundle = (id: string) => {
@@ -119,16 +145,7 @@ export async function loadEvidence(
     if (!p) bundles.set(id, (p = loadTournament(data, id)));
     return p;
   };
-  const official = new Set<string>();
-  if (claims.length) {
-    const c = claims[0];
-    for (const r of await data.all<{ id: string }>(`SELECT id FROM event_definitions WHERE division = ? AND season = ? AND official = 1`, [
-      c.division,
-      c.season,
-    ])) {
-      official.add(r.id);
-    }
-  }
+  const targets = claims.length ? await targetEvents(data, rated.division, rated.season) : new Map<string, { id: string; name: string }>();
 
   const out: ClaimEvidence[] = [];
   for (const c of claims) {
@@ -137,6 +154,7 @@ export async function loadEvidence(
       status: c.status,
       verified: c.status === "VERIFIED" && verifiedIds.has(c.id),
       tournamentId: c.tournament_id,
+      season: c.season,
       eventDefId: c.event_def_id,
       eventName: c.event_def_id,
     };
@@ -170,8 +188,11 @@ export async function loadEvidence(
       out.push(no("no_eligible_result", ev.modelNote ?? "this event is not rated at this tournament"));
       continue;
     }
-    if (!official.has(ev.eventDefId)) {
-      out.push(no("no_eligible_result", "not an official event this season"));
+    const target = targets.get(ev.eventDefId);
+    if (!target) {
+      out.push(
+        no("no_eligible_result", c.season === rated.season ? "not an official event this season" : `no equivalent official event in ${rated.season - 1}-${String(rated.season).slice(2)}`),
+      );
       continue;
     }
     const result = b.results.find((r) => r.entryId === c.entry_id && r.tournamentEventId === c.tournament_event_id);
@@ -207,7 +228,7 @@ export async function loadEvidence(
       data.get<{ component: number }>(`SELECT component FROM event_ratings WHERE snapshot_id = ? AND entity_id = ? AND event_def_id = ?`, [
         snapshot.id,
         entry.teamId,
-        ev.eventDefId,
+        target.id,
       ]),
     ]);
     if (!fit || !(fit.n > 0) || !(fit.weight > 0)) {
@@ -217,6 +238,8 @@ export async function loadEvidence(
     const w = fit.weight / fit.n;
     out.push({
       ...base,
+      eventDefId: target.id,
+      eventName: target.name,
       outcome: "counted",
       reason: null,
       x: obs.x,

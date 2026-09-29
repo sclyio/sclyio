@@ -80,15 +80,11 @@ export interface MembershipRow {
   school_name: string;
   division: string;
   season: number;
-  starts_on: string | null;
-  ends_on: string | null;
   revision: number;
   status: MembershipStatus;
   created_at: string;
   updated_at: string;
 }
-
-const isDate = (s: unknown): s is string => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
 
 async function validateSchoolSeason(ctx: Ctx, schoolId: unknown, division: unknown, season: unknown) {
   if (typeof schoolId !== "string" || !schoolId) throw new ValidationError("Choose a school.");
@@ -104,20 +100,25 @@ async function validateSchoolSeason(ctx: Ctx, schoolId: unknown, division: unkno
   return { school, division: division as "B" | "C", season: s };
 }
 
-/** Attach the user to an existing school for one division and season (starts unverified). */
+/**
+ * Attach the user to an existing school for one whole division and season
+ * (starts unverified). Members can add any number of seasons, and different
+ * schools in different seasons, but only one school per season (both
+ * divisions at that one school are allowed). There are no partial seasons.
+ */
 export async function joinSchool(ctx: Ctx, input: { schoolId: unknown; division: unknown; season: unknown }) {
   const actor = await requireUser(ctx, { mutation: true });
   const { school, division, season } = await validateSchoolSeason(ctx, input.schoolId, input.division, input.season);
   const at = ctx.now.toISOString();
   return tx(ctx.db, async (t) => {
-    const open = await row<{ id: string; school_name: string }>(
+    const other = await row<{ school_name: string; division: string }>(
       t,
-      `SELECT id, school_name FROM school_memberships WHERE user_id = ? AND division = ? AND season = ? AND ends_on IS NULL`,
-      [actor.userId, division, season],
+      `SELECT school_name, division FROM school_memberships WHERE user_id = ? AND season = ? AND school_id <> ?`,
+      [actor.userId, season, school.id],
     );
-    if (open) {
+    if (other) {
       throw new ConflictError(
-        `You are already affiliated with ${open.school_name} for that division and season. Use “Transfer school” in settings to change it.`,
+        `You are already affiliated with ${other.school_name} for ${season - 1}-${String(season).slice(2)}. You can only be at one school per season.`,
       );
     }
     const dup = await row(t, `SELECT id FROM school_memberships WHERE user_id = ? AND school_id = ? AND division = ? AND season = ?`, [
@@ -144,47 +145,12 @@ async function markOnboarded(t: Transaction, actor: Actor, at: string) {
   await run(t, `UPDATE users SET onboarded_at = ? WHERE id = ? AND onboarded_at IS NULL AND display_name IS NOT NULL`, [at, actor.userId]);
 }
 
-/**
- * Transfer within a season: the current membership ends on `effective`, a
- * new unverified membership starts that day. Past claims keep referencing
- * the old membership; nothing about the old verification carries over.
- */
-export async function transferSchool(ctx: Ctx, input: { membershipId: unknown; schoolId: unknown; effective: unknown }) {
+/** Public profile (default) or private: private members appear nowhere public. */
+export async function setProfilePrivacy(ctx: Ctx, isPrivate: boolean) {
   const actor = await requireUser(ctx, { mutation: true });
-  const old = await ownMembership(ctx, actor, input.membershipId);
-  if (old.ends_on) throw new ConflictError("That affiliation has already ended.");
-  if (!isDate(input.effective)) throw new ValidationError("Enter the transfer date.");
-  if (old.starts_on && input.effective <= old.starts_on) throw new ValidationError("The transfer date must be after the affiliation started.");
-  if (input.schoolId === old.school_id) throw new ValidationError("Choose a different school.");
-  const { school } = await validateSchoolSeason(ctx, input.schoolId, old.division, old.season);
-  const effective = input.effective;
   const at = ctx.now.toISOString();
-  return tx(ctx.db, async (t) => {
-    const n = await run(t, `UPDATE school_memberships SET ends_on = ?, updated_at = ? WHERE id = ? AND user_id = ? AND ends_on IS NULL`, [
-      effective,
-      at,
-      old.id,
-      actor.userId,
-    ]);
-    if (!n) throw new ConflictError("That affiliation changed. Reload and try again.");
-    const dup = await row(t, `SELECT id FROM school_memberships WHERE user_id = ? AND school_id = ? AND division = ? AND season = ?`, [
-      actor.userId,
-      school.id,
-      old.division,
-      old.season,
-    ]);
-    if (dup) throw new ConflictError("You already had an affiliation with that school this season.");
-    const id = newId("mem");
-    await run(
-      t,
-      `INSERT INTO school_memberships (id, user_id, school_id, school_name, division, season, starts_on, revision, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'SELF_REPORTED', ?, ?)`,
-      [id, actor.userId, school.id, school.name, old.division, old.season, effective, at, at],
-    );
-    await audit(t, { at, actorUserId: actor.userId, subjectType: "membership", subjectId: old.id, revision: old.revision, action: "ended", detail: { endsOn: effective, transferTo: id } });
-    await audit(t, { at, actorUserId: actor.userId, subjectType: "membership", subjectId: id, revision: 1, action: "create", toStatus: "SELF_REPORTED", detail: { transferFrom: old.id } });
-    return id;
-  });
+  await run(ctx.db, `UPDATE users SET profile_private = ?, updated_at = ? WHERE id = ?`, [isPrivate ? 1 : 0, at, actor.userId]);
+  await audit(ctx.db, { at, actorUserId: actor.userId, subjectType: "user", subjectId: actor.userId, action: isPrivate ? "profile_private" : "profile_public" });
 }
 
 export async function ownMembership(ctx: Ctx, actor: Actor, membershipId: unknown): Promise<MembershipRow> {
@@ -196,7 +162,7 @@ export async function ownMembership(ctx: Ctx, actor: Actor, membershipId: unknow
 }
 
 export const memberships = (ctx: Ctx, userId: string) =>
-  rows<MembershipRow>(ctx.db, `SELECT * FROM school_memberships WHERE user_id = ? ORDER BY season DESC, division, starts_on`, [userId]);
+  rows<MembershipRow>(ctx.db, `SELECT * FROM school_memberships WHERE user_id = ? ORDER BY season DESC, division, created_at`, [userId]);
 
 /* ------------------------------------------------------------------ */
 /* Participation claims                                               */
@@ -231,8 +197,6 @@ async function validateClaimTarget(ctx: Ctx, m: MembershipRow, tournamentId: unk
   if (tournament.division !== m.division || tournament.season !== m.season) {
     throw new ValidationError(`That tournament is not a Division ${m.division} tournament in your affiliation's season.`);
   }
-  if (m.starts_on && tournament.end_date < m.starts_on) throw new ValidationError("That tournament was before this affiliation started.");
-  if (m.ends_on && tournament.start_date >= m.ends_on) throw new ValidationError("That tournament was after this affiliation ended.");
   const entry = await entryById(ctx.data, entryId);
   if (!entry || entry.tournament_id !== tournament.id) throw new ValidationError("That team entry is not part of this tournament.");
   if (entry.school_id !== m.school_id) throw new ValidationError(`That team entry does not belong to ${m.school_name}.`);

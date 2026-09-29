@@ -147,8 +147,6 @@ function Submission({ item, csrf, back, disabled }: { item: QueueItem; csrf: str
         <b>School affiliation</b> <StatusTag status={m.status} /> <span className="muted">rev {m.revision}</span>
         <div className="muted" style={{ fontSize: 13 }}>
           {m.school_name}, Division {m.division}, {seasonLabel(m.season)}
-          {m.starts_on ? `, from ${m.starts_on}` : ""}
-          {m.ends_on ? `, until ${m.ends_on}` : ""}
           {item.request.include_membership ? "" : " · not included in this request"}
         </div>
         <DecisionFields prefix="m" id={m.id} revision={m.revision} status={m.status} disabled={disabled} />

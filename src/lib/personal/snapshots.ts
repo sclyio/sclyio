@@ -2,7 +2,7 @@ import type { Client } from "@libsql/client";
 import type { DataSource } from "../accounts/actor";
 import { newId, rows, run, sha256, tx } from "../accounts/db";
 import { refreshClaimSources, type ClaimSourceRow } from "../accounts/sources";
-import { MODEL_VERSION } from "../rating/config";
+import { DEFAULT_PARAMS, MODEL_VERSION } from "../rating/config";
 import { loadEvidence, seasonSnapshot, type PersonalClaimInput } from "./evidence";
 import { aggregatePersonal, PERSONAL_METHOD_VERSION, type ClaimEvidence, type PersonalSummary } from "./rating";
 
@@ -17,12 +17,16 @@ import { aggregatePersonal, PERSONAL_METHOD_VERSION, type ClaimEvidence, type Pe
 
 type ClaimRow = PersonalClaimInput & ClaimSourceRow & { revision: number };
 
+/** Seasons counted for season S: S and the ones before it that carry a season weight. */
+export const SEASONS_COUNTED = DEFAULT_PARAMS.seasonWeights.length;
+
+/** Claims that feed the rating for (division, season): that season and the three before it. */
 async function poolClaims(db: Client, userId: string, division: string, season: number): Promise<ClaimRow[]> {
   return rows<ClaimRow>(
     db,
     `SELECT id, status, revision, division, season, tournament_id, entry_id, tournament_event_id, event_def_id, source_hash, source_state
-     FROM participation_claims WHERE user_id = ? AND division = ? AND season = ? ORDER BY id`,
-    [userId, division, season],
+     FROM participation_claims WHERE user_id = ? AND division = ? AND season BETWEEN ? AND ? ORDER BY id`,
+    [userId, division, season - SEASONS_COUNTED + 1, season],
   );
 }
 
@@ -39,6 +43,10 @@ export function inputsHash(claims: Pick<ClaimRow, "id" | "revision" | "status" |
 
 export interface PersonalSnapshot extends PersonalSummary {
   id: string;
+  /** Season Trend: the same method with this season's claims only. */
+  trendZ: number | null;
+  trendUsr: number | null;
+  trendState: PersonalSummary["state"] | null;
   division: string;
   season: number;
   status: "ready" | "failed";
@@ -57,6 +65,9 @@ function fromRow(r: Record<string, unknown>): PersonalSnapshot {
   const detail = r.detail ? (JSON.parse(r.detail as string) as { events: PersonalSummary["events"]; claims: ClaimEvidence[] }) : { events: [], claims: [] };
   return {
     id: r.id as string,
+    trendZ: (r.trend_z as number | null) ?? null,
+    trendUsr: (r.trend_usr as number | null) ?? null,
+    trendState: (r.trend_state as PersonalSummary["state"] | null) ?? null,
     division: r.division as string,
     season: r.season as number,
     status: r.status as "ready" | "failed",
@@ -92,8 +103,9 @@ export async function recomputePersonal(db: Client, data: DataSource, userId: st
     buildId = await currentBuildId(data);
     const snapshot = await seasonSnapshot(data, division, season);
     const verified = new Set(claims.filter((c) => c.status === "VERIFIED" && c.source_state === "current").map((c) => c.id));
-    const evidence = await loadEvidence(data, claims, snapshot, verified);
+    const evidence = await loadEvidence(data, claims, snapshot, verified, { division, season });
     const s = aggregatePersonal(evidence);
+    const trend = aggregatePersonal(evidence.filter((e) => e.season === season));
     values = {
       status: "ready",
       state: s.state,
@@ -101,6 +113,9 @@ export async function recomputePersonal(db: Client, data: DataSource, userId: st
       rating_as_of: snapshot?.asOf ?? null,
       summary_z: s.summaryZ,
       summary_usr: s.summaryUsr,
+      trend_z: trend.summaryZ,
+      trend_usr: trend.summaryUsr,
+      trend_state: trend.state,
       rated_events: s.ratedEvents,
       competitions: s.competitions,
       contributing_claims: s.contributingClaims,

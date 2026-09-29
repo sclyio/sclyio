@@ -46,7 +46,7 @@ export default async function LoginPage(props: PageProps<"/login">) {
       )}
       <p className="muted" style={{ fontSize: 13 }}>
         scly.io asks Google only for your basic profile and email address, to recognize your account. Your email is never shown on the site.
-        Your profile is private.
+        Your member profile is public by default; you can make it private in Settings.
       </p>
     </section>
   );

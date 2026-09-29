@@ -13,6 +13,7 @@ import type { Ctx } from "../src/lib/accounts/actor";
 import { libsqlSource, migrateAccounts, run, sha256 } from "../src/lib/accounts/db";
 import { csrfToken, completeLogin, createSession } from "../src/lib/auth/session";
 import { rebuildRatings } from "../src/lib/rating/engine";
+import { emptyMappings } from "../src/lib/identity/mappings";
 import { importAll, sciolyff, SyntheticSource, tempDb, type SynthPlacing } from "./helpers";
 
 process.env.SESSION_SECRET ??= "test-session-secret-0123456789abcdef-0123456789";
@@ -36,11 +37,11 @@ function placings(orders: Record<string, number[]>): SynthPlacing[] {
   return out;
 }
 
-function tourneyC(date: string, name: string, orders: Record<string, number[]>) {
+function tourneyC(date: string, name: string, orders: Record<string, number[]>, year = 2026) {
   return sciolyff({
     name,
     division: "C",
-    year: 2026,
+    year,
     date,
     events: [...EVENTS_C.map((n) => ({ name: n })), { name: TRIAL, trial: true }],
     teams: C_TEAMS,
@@ -53,18 +54,34 @@ export interface World {
   data: ReturnType<typeof libsqlSource>;
   dataClient: Client;
   db: Client;
-  t: { a: string; b: string; c: string; divB: string };
+  t: { a: string; b: string; c: string; divB: string; prev: string };
 }
 
 /** Synthetic dataset (imported + rated by the real jobs) and an empty accounts DB. */
 export async function world(): Promise<World> {
-  const src = new SyntheticSource({ 2026: EVENTS_B }, { 2026: EVENTS_C });
+  const src = new SyntheticSource({ 2026: EVENTS_B }, { 2025: EVENTS_C, 2026: EVENTS_C });
   const t = {
+    prev: "2025-01-11_omega_invitational_c",
     a: "2026-01-10_alpha_invitational_c",
     b: "2026-01-24_beta_invitational_c",
     c: "2026-02-07_gamma_invitational_c",
     divB: "2026-01-17_delta_invitational_b",
   };
+  // Previous season (2025): Codebusters is declared equivalent across seasons.
+  src.write(
+    t.prev,
+    tourneyC(
+      "2025-01-11",
+      "Omega Invitational",
+      {
+        "Anatomy and Physiology": [2, 1, 3, 4, 5, 6],
+        Codebusters: [1, 2, 3, 4, 5, 6],
+        "Fermi Questions": [3, 1, 2, 4, 5, 6],
+        [TRIAL]: [1, 2, 3, 4, 5, 6],
+      },
+      2025,
+    ),
+  );
   src.write(
     t.a,
     tourneyC("2026-01-10", "Alpha Invitational", {
@@ -110,7 +127,17 @@ export async function world(): Promise<World> {
     }),
   );
   const ds = tempDb();
-  await importAll(ds, src);
+  const mappings = emptyMappings();
+  mappings.eventEquivalence.groups.push({
+    id: "C-codebusters-2025-2026",
+    division: "C",
+    basis: "synthetic test mapping",
+    members: [
+      { season: 2025, event: "Codebusters" },
+      { season: 2026, event: "Codebusters" },
+    ],
+  });
+  await importAll(ds, src, mappings, [2025, 2026]);
   rebuildRatings({ db: ds, log: () => {} });
   const dataPath = ds.$client.name;
   ds.$client.close();

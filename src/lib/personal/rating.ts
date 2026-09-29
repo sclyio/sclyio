@@ -7,7 +7,11 @@ import { toUsr } from "../rating/math";
  * ./evidence.ts; it never writes to, or feeds back into, team or school
  * ratings.
  *
- * For each eligible claimed team-event result j in one division and season:
+ * Like team ratings, the Unofficial USR for season S uses claims from S and
+ * the three seasons before it (equivalent events, season weights 1, 1/2,
+ * 1/4, 1/8 through w), and the Season Trend uses season S claims only.
+ *
+ * For each eligible claimed team-event result j:
  *   a_j = x_j + k_j     x = the engine's placement logit among eligible
  *                           participants; k = the fitted field offset of that
  *                           tournament event (Team Performance model)
@@ -19,7 +23,8 @@ import { toUsr } from "../rating/math";
  * Display:       USR = 1 + 15.5 / (1 + exp(-(z - 0.85) / 0.6))  (the site's v2 display mapping, toUsr)
  */
 
-export const PERSONAL_METHOD_VERSION = "personal-v1";
+/** personal-v1: one season. personal-v2: last 4 seasons (engine weights) + Season Trend. */
+export const PERSONAL_METHOD_VERSION = "personal-v2";
 export const PERSONAL_PRIOR_WEIGHT = 2;
 
 /** Statuses whose claims count toward the unofficial rating. */
@@ -46,6 +51,9 @@ export interface ClaimEvidence {
   status: string;
   verified: boolean;
   tournamentId: string;
+  /** Season of the claimed tournament. */
+  season: number;
+  /** The rated season's official event this claim counts toward. */
   eventDefId: string;
   eventName: string;
   outcome: ClaimOutcome;

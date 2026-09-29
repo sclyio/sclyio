@@ -18,7 +18,7 @@ const STEPS = ["Tournament", "Team entry", "Events and results"];
 export default async function AddCompetition(props: PageProps<"/dashboard/claims/new">) {
   const sp = (await props.searchParams) as Record<string, string | undefined>;
   const { actor, csrf, ctx } = await pageUser("/dashboard/claims/new");
-  const ms = (await memberships(ctx, actor.userId)).filter((m) => !m.ends_on || sp.m === m.id);
+  const ms = await memberships(ctx, actor.userId);
   const m = ms.find((x) => x.id === sp.m) ?? (ms.length === 1 ? ms[0] : null);
   const base = m ? `/dashboard/claims/new?m=${m.id}` : "/dashboard/claims/new";
   const step = !m ? 0 : !sp.t ? 1 : !sp.e ? 2 : 3;
@@ -84,15 +84,14 @@ async function TournamentStep({ m, base, userId, db }: { m: MembershipRow; base:
     ),
   ]);
   const claimed = new Map(counts.map((r) => [r.tournament_id, r.n]));
-  const inRange = list.filter((t) => (!m.starts_on || t.end_date >= m.starts_on) && (!m.ends_on || t.start_date < m.ends_on));
   return (
     <section className="card flush">
       <div className="card-head">
         <h2 style={{ margin: 0 }}>Choose a tournament you attended</h2>
       </div>
-      {inRange.length ? (
+      {list.length ? (
         <ul className="choice-list">
-          {inRange.map((t) => {
+          {list.map((t) => {
             const n = claimed.get(t.id);
             return (
               <li key={t.id}>

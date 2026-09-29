@@ -6,7 +6,7 @@ import { appOrigin } from "../auth/google";
 import { csrfToken } from "../auth/session";
 import { all, get } from "../db/read";
 import { authenticate, type Actor, type Ctx } from "./actor";
-import { accountsDb } from "./db";
+import { accountsDb, ensureAccountsSchema } from "./db";
 
 /** Request-scoped glue between Next.js (cookies, forms) and the domain layer. */
 
@@ -18,6 +18,7 @@ export const OAUTH_COOKIE = () => (secureCookies() ? "__Host-sclyio_oauth" : "sc
 export const dataSource = { all, get };
 
 export async function requestCtx(form?: FormData): Promise<Ctx> {
+  await ensureAccountsSchema();
   const jar = await cookies();
   const csrf = form?.get("csrf");
   return {

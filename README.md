@@ -3,7 +3,7 @@
 Ratings for Science Olympiad **Division B and C** teams, built from public tournament results in the [Duosmium](https://www.duosmium.org/results/) archive.
 
 - **Teams**: a school's Team 1, Team 2, … in a division, across all seasons (Team 1 = the school's best finisher at each tournament). Default leaderboard.
-- **Schools**: event-by-event school superscores within each tournament, re-ranked among unique schools. Fitted separately from teams.
+- **Schools**: event-by-event school superscores within each tournament, re-ranked among unique schools. Fitted separately from teams. School pages show USR and Season Trend, rating history, and a Members tab.
 - Every rating is event-first (placement logits, field-strength adjustment, regularized fit), then averaged over the season's official events and shown on a 1–16.5 scale (USR). **Season Trend** is the same rating using only the current season.
 
 Browsing needs no account. Students can sign in with Google, record which competitions and events they took part in, and see an **Unofficial USR** estimated from those claimed team-event results (see [Accounts](#accounts-and-the-unofficial-usr)). There are no public rosters or individual leaderboards: public results record team-event performance, not individual contributions.
@@ -101,9 +101,9 @@ Storage: two ~1.4 GB datasets plus the meta database.
 ### What users can do
 
 1. **Sign in with Google** (`/login`) and choose a display name (`/onboarding`).
-2. **Affiliate with an imported school** for one division and season. Affiliations start self-reported; choosing a school grants no access to anything. A mid-season transfer (`/settings/profile`) ends the old affiliation and starts a new, unverified one; earlier claims stay with the old one.
+2. **Affiliate with imported schools**, one whole division and season at a time (no partial seasons). Members can add any number of seasons and different schools in different seasons, but only one school per season (both divisions at that one school are allowed). Affiliations start self-reported, and choosing a school grants no access to anything.
 3. **Add competition** (`/dashboard/claims/new`): pick an imported tournament, the school's actual entry (suffix and team number exactly as imported), then the events they competed in, with each official result shown. Each event is its own claim (one per user, tournament, and event). Event partners can claim the same team-event result; one user cannot claim an event on two teams at one tournament.
-4. **Unofficial USR** on `/dashboard`, available immediately from self-reported and pending claims.
+4. **Unofficial USR and Season Trend** on `/dashboard` and the member's profile (`/members/<id>`), available immediately from self-reported and pending claims.
 5. **Request verification** (`/dashboard/verify`) with an optional private note, and follow each item's status.
 
 Admin (`/admin/verifications`, absent from ordinary navigation, 404 for everyone else): a filterable queue of submissions with the user, school, division/season, tournament, actual team entry, claimed events, official results, Duosmium links, revisions, review flags, and history. The admin records a decision per item (verify / reject / revoke) with a reason the user sees and a separate private note.
@@ -115,7 +115,7 @@ Admin (`/admin/verifications`, absent from ordinary navigation, 404 for everyone
 - **Sessions**: a random 256-bit token in an HttpOnly, SameSite=Lax cookie (`__Host-` prefixed and Secure in production). Only its SHA-256 is stored, so sessions are revocable (log out, log out everywhere); they expire after 14 days. Every state change also needs a per-session CSRF token (Next.js additionally rejects cross-origin action POSTs). Post-login redirects accept only same-origin allowlisted paths.
 - **Administrator**: one policy, `requireAdmin()` in `src/lib/accounts/actor.ts`, evaluated from the database on every admin page load and action: an active session for a Google account whose Google-reported email is verified and, lowercased and trimmed, exactly `universal.scioly.rating@gmail.com` (no dot stripping, no `+` removal). There is no stored role, no promotion path, and no first-user admin. Review decisions also require a Google sign-in completed within the last **30 minutes**. Google has no `max_age` or `prompt=login`, so "Sign in again" runs the flow with `prompt=select_account` and the new session records the time. The admin cannot review their own affiliation or claims.
 - **Integrity**: every submitted id is re-validated on the server against the active dataset (membership, school, entry, tournament, division/season, event). Status transitions are enforced on the server. Decisions bind to the reviewed revision with optimistic checks, so approving a claim that was edited during review fails safely. `verification_decisions` and `audit_log` are append-only (database triggers reject UPDATE and DELETE).
-- **Privacy**: profiles are private (this version has no public profile pages). Pages never expose provider email, subject, sessions, or admin private notes; signed-in routes send `Cache-Control: private, no-store`.
+- **Privacy**: member profiles (`/members/<id>`) are public by default and listed on each school's **Members** tab with a verified / self-reported mark; a member can make their profile private in Settings, which removes it from every public page (a private profile returns 404 to everyone but its owner). Public pages show only display name, affiliations, counted claims (marked verified or self-reported), and the Unofficial USR; they never show provider email, subject, sessions, admin notes, or rejected/revoked items. Signed-in and member routes send `Cache-Control: private, no-store`, and member profiles are marked noindex.
 
 ### Accounts database
 
@@ -123,14 +123,14 @@ Result datasets are replaced on every publish, so accounts live in their own wri
 
 After a publish, each claim's official result is fingerprinted again. Unreviewed claims follow the correction. A verified claim whose result changed is flagged "changed" for re-review and stops counting as admin-verified evidence. A result that disappeared is marked missing and stops counting.
 
-### Unofficial USR (method `personal-v1`)
+### Unofficial USR (method `personal-v2`)
 
 `src/lib/personal/` is an experimental proxy, not a validated model of individual ability. It only reads the published build and never feeds back into team, school, or field-strength fits.
 
-For each counted claim (self-reported, pending, or verified) in one division and season:
+Like team ratings, the Unofficial USR for season S counts claims from S and the three seasons before it (events carried across seasons through the reviewed equivalence mappings, season weights 1, 1/2, 1/4, 1/8 inside w), and the **Season Trend** repeats the calculation with season S claims only. For each counted claim (self-reported, pending, or verified):
 
 - x = the engine's own placement logit for that team entry, recomputed with `deriveObservations()` (same eligible participants, ties, and non-participation handling);
-- k = the published field offset of that tournament event, and w = its normalized observation weight (`field_fits.weight / n`), both from the season's latest event-detail team refit;
+- k = the published field offset of that tournament event, and w = its normalized observation weight (`field_fits.weight / n`), both from season S's latest event-detail team refit;
 - a = x + k. Per event: **s = Σ w·a / (Σ w + 2)**. Summary: the mean over nationally comparable rated events. Display: the site's mapping **USR = 1 + 15.5 / (1 + e^(−(z − 0.85)/0.6))**.
 
 Only claimed events count. There is no default score for missing events, and neither the school's rating nor its superscored School Potential is used. Claims without a rated result are stored and labelled ("no eligible result", "no comparable model estimate", or "rating calculation pending"). Estimates for teams outside the event's connected reference component are shown as local-only and left out of the summary. A rating is provisional with fewer than 3 comparable contributing claims or fewer than 2 competitions. Each stored snapshot records the model and method versions, dataset build, rating snapshot, computation time, and the input claims' revisions, statuses, and source fingerprints. If those no longer match, the page recomputes before showing a score, or shows "calculation pending".

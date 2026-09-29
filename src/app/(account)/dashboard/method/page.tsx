@@ -25,8 +25,12 @@ export default function Method() {
           Per event: s = Σ w·a / (Σ w + {PERSONAL_PRIOR_WEIGHT}). The +{PERSONAL_PRIOR_WEIGHT} pulls sparse evidence toward an average result.
         </li>
         <li>
-          Summary: the average of your rated events in that division and season, shown on the site&apos;s scale: USR = 1 + 15.5 / (1 + e^(−(z − 0.85)
-          / 0.6)).
+          Summary: the average of your rated events, shown on the site&apos;s scale: USR = 1 + 15.5 / (1 + e^(−(z − 0.85) / 0.6)).
+        </li>
+        <li>
+          Like team ratings, the USR for a season counts claims from that season and the three before it, using the same events carried across
+          seasons and the team model&apos;s season weights (1, 1/2, 1/4, 1/8). The <b>Season Trend</b> repeats the calculation with that
+          season&apos;s claims only.
         </li>
       </ol>
       <p>

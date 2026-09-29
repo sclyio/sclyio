@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
       { key: "Referrer-Policy", value: "same-origin" },
       { key: "X-Robots-Tag", value: "noindex" },
     ];
-    return ["/login", "/onboarding", "/dashboard/:path*", "/dashboard", "/settings/:path*", "/admin/:path*", "/auth/:path*"].map((source) => ({
+    return ["/login", "/onboarding", "/dashboard/:path*", "/dashboard", "/settings/:path*", "/admin/:path*", "/auth/:path*", "/members/:path*"].map((source) => ({
       source,
       headers: privateHeaders,
     }));
