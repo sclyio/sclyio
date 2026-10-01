@@ -101,6 +101,44 @@ async function historyFor(ctx: Ctx, type: "claim" | "membership", id: string): P
   return items.sort((a, b) => a.at.localeCompare(b.at));
 }
 
+/** Everything the reviewer sees about one claim: the official result, partners, flags, and history. */
+async function reviewClaim(ctx: Ctx, c: ClaimRow): Promise<QueueClaim> {
+  const source = await sourceSnapshot(ctx.data, c);
+  const [partnerRows, perTournament] = await Promise.all([
+    rows<{ display_name: string | null }>(
+      ctx.db,
+      `SELECT u.display_name FROM participation_claims c JOIN users u ON u.id = c.user_id
+       WHERE c.entry_id = ? AND c.tournament_event_id = ? AND c.user_id <> ? AND c.status <> 'WITHDRAWN'`,
+      [c.entry_id, c.tournament_event_id, c.user_id],
+    ),
+    row<{ n: number }>(
+      ctx.db,
+      `SELECT COUNT(*) AS n FROM participation_claims WHERE user_id = ? AND tournament_id = ? AND status <> 'WITHDRAWN'`,
+      [c.user_id, c.tournament_id],
+    ),
+  ]);
+  const flags: string[] = [];
+  if (partnerRows.length + 1 > FLAG_MANY_PARTNERS) flags.push(`${partnerRows.length + 1} users claim this team-event result`);
+  if ((perTournament?.n ?? 0) > FLAG_MANY_EVENTS) flags.push(`${perTournament!.n} events claimed at this tournament`);
+  if (c.source_state === "changed") flags.push("official result changed since it was verified");
+  if (c.source_state === "missing") flags.push("official result no longer in the published results");
+  if (source.entry?.exhibition) flags.push("exhibition entry");
+  if (source.entry?.resolution === "unresolved") flags.push("entry identity unresolved");
+  return {
+    claim: c,
+    source,
+    tournamentName: source.tournament?.name ?? c.tournament_id,
+    tournamentDate: source.tournament?.end_date ?? "",
+    resultUrl: source.tournament?.result_url ?? null,
+    entryText: source.entry ? `${source.entry.raw_school} ${entryLabel(source.entry)}` : c.entry_id,
+    eventName: source.event?.name ?? c.event_def_id,
+    resultText: source.missing ? "missing from published results" : resultText(source.result),
+    flags,
+    partners: partnerRows.map((p) => p.display_name ?? "(no name)"),
+    history: await historyFor(ctx, "claim", c.id),
+  };
+}
+
 export async function adminQueue(ctx: Ctx, f: QueueFilters = {}): Promise<QueueItem[]> {
   await requireAdmin(ctx);
   const where: string[] = ["1=1"];
@@ -139,42 +177,7 @@ export async function adminQueue(ctx: Ctx, f: QueueFilters = {}): Promise<QueueI
     // Source corrections since the claim was reviewed show up here.
     await refreshClaimSources(ctx.db, ctx.data, claims, ctx.now);
     const qc: QueueClaim[] = [];
-    for (const c of claims) {
-      const source = await sourceSnapshot(ctx.data, c);
-      const [partnerRows, perTournament] = await Promise.all([
-        rows<{ display_name: string | null }>(
-          ctx.db,
-          `SELECT u.display_name FROM participation_claims c JOIN users u ON u.id = c.user_id
-           WHERE c.entry_id = ? AND c.tournament_event_id = ? AND c.user_id <> ? AND c.status <> 'WITHDRAWN'`,
-          [c.entry_id, c.tournament_event_id, c.user_id],
-        ),
-        row<{ n: number }>(
-          ctx.db,
-          `SELECT COUNT(*) AS n FROM participation_claims WHERE user_id = ? AND tournament_id = ? AND status <> 'WITHDRAWN'`,
-          [c.user_id, c.tournament_id],
-        ),
-      ]);
-      const flags: string[] = [];
-      if (partnerRows.length + 1 > FLAG_MANY_PARTNERS) flags.push(`${partnerRows.length + 1} users claim this team-event result`);
-      if ((perTournament?.n ?? 0) > FLAG_MANY_EVENTS) flags.push(`${perTournament!.n} events claimed at this tournament`);
-      if (c.source_state === "changed") flags.push("official result changed since it was verified");
-      if (c.source_state === "missing") flags.push("official result no longer in the published results");
-      if (source.entry?.exhibition) flags.push("exhibition entry");
-      if (source.entry?.resolution === "unresolved") flags.push("entry identity unresolved");
-      qc.push({
-        claim: c,
-        source,
-        tournamentName: source.tournament?.name ?? c.tournament_id,
-        tournamentDate: source.tournament?.end_date ?? "",
-        resultUrl: source.tournament?.result_url ?? null,
-        entryText: source.entry ? `${source.entry.raw_school} ${entryLabel(source.entry)}` : c.entry_id,
-        eventName: source.event?.name ?? c.event_def_id,
-        resultText: source.missing ? "missing from published results" : resultText(source.result),
-        flags,
-        partners: partnerRows.map((p) => p.display_name ?? "(no name)"),
-        history: await historyFor(ctx, "claim", c.id),
-      });
-    }
+    for (const c of claims) qc.push(await reviewClaim(ctx, c));
     out.push({
       request: {
         id: r.id as string,
@@ -190,6 +193,139 @@ export async function adminQueue(ctx: Ctx, f: QueueFilters = {}): Promise<QueueI
     });
   }
   return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Records: every affiliation and claim, any season, submitted or not  */
+/* ------------------------------------------------------------------ */
+
+export const RECORDS_PAGE_SIZE = 25;
+
+export interface RecordFilters {
+  /** "unverified" (default): anything still self-reported or pending; "any"; or one exact status. */
+  status?: string;
+  division?: string;
+  season?: number;
+  q?: string;
+  page?: number;
+}
+
+export interface RecordItem {
+  user: { id: string; displayName: string | null };
+  membership: MembershipRow;
+  membershipHistory: HistoryItem[];
+  claims: QueueClaim[];
+  /** The open submission covering this affiliation, if any. */
+  openRequestId: string | null;
+}
+
+/**
+ * Browse affiliations with their claims regardless of whether the member
+ * ever requested review, so the admin can verify any season's records. The
+ * admin's own records are left out (they cannot be reviewed by the admin).
+ */
+export async function adminRecords(ctx: Ctx, f: RecordFilters = {}): Promise<{ items: RecordItem[]; hasMore: boolean }> {
+  const actor = await requireAdmin(ctx);
+  const where: string[] = ["m.user_id <> @me"];
+  const args: Record<string, string | number> = { me: actor.userId };
+  const status = f.status ?? "unverified";
+  if (status === "unverified") {
+    where.push(`(m.status IN ('SELF_REPORTED', 'PENDING')
+      OR EXISTS (SELECT 1 FROM participation_claims c WHERE c.membership_id = m.id AND c.status IN ('SELF_REPORTED', 'PENDING')))`);
+  } else if (status !== "any") {
+    where.push("(m.status = @st OR EXISTS (SELECT 1 FROM participation_claims c WHERE c.membership_id = m.id AND c.status = @st))");
+    args.st = status;
+  }
+  if (f.division) {
+    where.push("m.division = @division");
+    args.division = f.division;
+  }
+  if (f.season) {
+    where.push("m.season = @season");
+    args.season = f.season;
+  }
+  if (f.q) {
+    where.push("(m.school_name LIKE @q OR u.display_name LIKE @q)");
+    args.q = `%${f.q.trim()}%`;
+  }
+  const page = Math.max(1, Math.floor(f.page ?? 1));
+  args.limit = RECORDS_PAGE_SIZE + 1;
+  args.offset = (page - 1) * RECORDS_PAGE_SIZE;
+  const ms = await rows<MembershipRow & { display_name: string | null }>(
+    ctx.db,
+    `SELECT m.*, u.display_name FROM school_memberships m JOIN users u ON u.id = m.user_id
+     WHERE ${where.join(" AND ")} ORDER BY m.season DESC, m.division, m.school_name, u.display_name, m.id LIMIT @limit OFFSET @offset`,
+    args,
+  );
+  const items: RecordItem[] = [];
+  for (const { display_name, ...membership } of ms.slice(0, RECORDS_PAGE_SIZE)) {
+    const claims = await rows<ClaimRow>(
+      ctx.db,
+      `SELECT * FROM participation_claims WHERE membership_id = ? AND status <> 'WITHDRAWN' ORDER BY tournament_id, event_def_id`,
+      [membership.id],
+    );
+    await refreshClaimSources(ctx.db, ctx.data, claims, ctx.now);
+    const qc: QueueClaim[] = [];
+    for (const c of claims) qc.push(await reviewClaim(ctx, c));
+    const open = await row<{ id: string }>(
+      ctx.db,
+      `SELECT id FROM verification_requests WHERE membership_id = ? AND closed_at IS NULL ORDER BY created_at DESC LIMIT 1`,
+      [membership.id],
+    );
+    items.push({
+      user: { id: membership.user_id, displayName: display_name },
+      membership,
+      membershipHistory: await historyFor(ctx, "membership", membership.id),
+      claims: qc,
+      openRequestId: open?.id ?? null,
+    });
+  }
+  return { items, hasMore: ms.length > RECORDS_PAGE_SIZE };
+}
+
+export interface SeasonSummary {
+  season: number;
+  division: string;
+  affiliations: number;
+  affiliationsVerified: number;
+  affiliationsUnverified: number;
+  claims: number;
+  claimsVerified: number;
+  claimsUnverified: number;
+  claimsPending: number;
+}
+
+/** Per division/season counts for the admin overview, newest season first. */
+export async function adminSeasonSummary(ctx: Ctx): Promise<{ seasons: SeasonSummary[]; openRequests: number }> {
+  const actor = await requireAdmin(ctx);
+  const [ms, cs, open] = await Promise.all([
+    rows<{ season: number; division: string; n: number; v: number; u: number }>(
+      ctx.db,
+      `SELECT season, division, COUNT(*) AS n, SUM(status = 'VERIFIED') AS v, SUM(status IN ('SELF_REPORTED', 'PENDING')) AS u
+       FROM school_memberships WHERE user_id <> ? GROUP BY season, division`,
+      [actor.userId],
+    ),
+    rows<{ season: number; division: string; n: number; v: number; u: number; p: number }>(
+      ctx.db,
+      `SELECT season, division, COUNT(*) AS n, SUM(status = 'VERIFIED') AS v, SUM(status IN ('SELF_REPORTED', 'PENDING')) AS u,
+         SUM(status = 'PENDING') AS p
+       FROM participation_claims WHERE status <> 'WITHDRAWN' AND user_id <> ? GROUP BY season, division`,
+      [actor.userId],
+    ),
+    row<{ n: number }>(ctx.db, `SELECT COUNT(*) AS n FROM verification_requests WHERE closed_at IS NULL AND user_id <> ?`, [actor.userId]),
+  ]);
+  const by = new Map<string, SeasonSummary>();
+  const get = (season: number, division: string) => {
+    const k = `${season}${division}`;
+    if (!by.has(k)) {
+      by.set(k, { season, division, affiliations: 0, affiliationsVerified: 0, affiliationsUnverified: 0, claims: 0, claimsVerified: 0, claimsUnverified: 0, claimsPending: 0 });
+    }
+    return by.get(k)!;
+  };
+  for (const m of ms) Object.assign(get(m.season, m.division), { affiliations: m.n, affiliationsVerified: m.v, affiliationsUnverified: m.u });
+  for (const c of cs) Object.assign(get(c.season, c.division), { claims: c.n, claimsVerified: c.v, claimsUnverified: c.u, claimsPending: c.p });
+  const seasons = [...by.values()].sort((a, b) => b.season - a.season || a.division.localeCompare(b.division));
+  return { seasons, openRequests: open?.n ?? 0 };
 }
 
 function cleanReason(v: unknown, label: string): string | null {
@@ -275,11 +411,15 @@ export async function decideMembership(ctx: Ctx, input: DecisionInput) {
       m.status,
     ]);
     if (!n) throw new ConflictError("This affiliation changed during review. Reload and try again.");
-    const req = await row<{ id: string }>(
-      t,
-      `SELECT id FROM verification_requests WHERE membership_id = ? AND include_membership = 1 ORDER BY created_at DESC LIMIT 1`,
-      [m.id],
-    );
+    // Only a decision on a pending affiliation answers a submission; direct decisions (e.g. past seasons) have none.
+    const req =
+      m.status === "PENDING"
+        ? await row<{ id: string }>(
+            t,
+            `SELECT id FROM verification_requests WHERE membership_id = ? AND include_membership = 1 ORDER BY created_at DESC LIMIT 1`,
+            [m.id],
+          )
+        : null;
     await run(
       t,
       `INSERT INTO verification_decisions (id, subject_type, subject_id, subject_revision, request_id, reviewer_user_id, reviewer_oauth_account_id,

@@ -22,17 +22,19 @@ export type MembershipStatus = Exclude<ClaimStatus, "WITHDRAWN">;
  *   withdraw  any but WITHDRAWN -> WITHDRAWN                         (owner, claims only)
  *   edit      any but WITHDRAWN -> SELF_REPORTED, revision + 1       (owner)
  *   readd     WITHDRAWN -> SELF_REPORTED, revision + 1               (owner)
- *   verify    PENDING -> VERIFIED                                    (admin)
- *   reject    PENDING -> REJECTED                                    (admin)
+ *   verify    SELF_REPORTED | PENDING | REJECTED | REVOKED -> VERIFIED  (admin)
+ *   reject    SELF_REPORTED | PENDING -> REJECTED                    (admin)
  *   revoke    VERIFIED -> REVOKED                                    (admin)
+ * The admin may decide on items nobody submitted (e.g. past seasons' records)
+ * and may reverse an earlier rejection or revocation.
  */
 export const TRANSITIONS: Record<string, { from: string[]; to: string }> = {
   request: { from: ["SELF_REPORTED", "REJECTED", "REVOKED"], to: "PENDING" },
   withdraw: { from: ["SELF_REPORTED", "PENDING", "VERIFIED", "REJECTED", "REVOKED"], to: "WITHDRAWN" },
   edit: { from: ["SELF_REPORTED", "PENDING", "VERIFIED", "REJECTED", "REVOKED"], to: "SELF_REPORTED" },
   readd: { from: ["WITHDRAWN"], to: "SELF_REPORTED" },
-  verify: { from: ["PENDING"], to: "VERIFIED" },
-  reject: { from: ["PENDING"], to: "REJECTED" },
+  verify: { from: ["SELF_REPORTED", "PENDING", "REJECTED", "REVOKED"], to: "VERIFIED" },
+  reject: { from: ["SELF_REPORTED", "PENDING"], to: "REJECTED" },
   revoke: { from: ["VERIFIED"], to: "REVOKED" },
 };
 

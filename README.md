@@ -106,7 +106,7 @@ Storage: two ~1.4 GB datasets plus the meta database.
 4. **Unofficial USR and Season Trend** on `/dashboard` and the member's profile (`/members/<id>`), available immediately from self-reported and pending claims.
 5. **Request verification** (`/dashboard/verify`) with an optional private note, and follow each item's status.
 
-Admin (`/admin/verifications`, absent from ordinary navigation, 404 for everyone else): a filterable queue of submissions with the user, school, division/season, tournament, actual team entry, claimed events, official results, Duosmium links, revisions, review flags, and history. The admin records a decision per item (verify / reject / revoke) with a reason the user sees and a separate private note.
+Admin portal (`/admin`, separate from the member area, 404 for everyone else): an overview of verification progress per division and season; a **request queue** (`/admin/verifications`) of submissions with the user, school, division/season, tournament, actual team entry, claimed events, official results, Duosmium links, revisions, review flags, and history; and **All seasons** (`/admin/records`), which lists every affiliation and its claims for any season, whether or not the member requested review, so past seasons' results can be verified directly. The admin records a decision per item (verify / reject / revoke, or reverse an earlier rejection or revocation) with a reason the user sees and a separate private note, or verifies all of a card's unreviewed items at once.
 
 ### Security model
 

@@ -1,5 +1,5 @@
 /** Same-origin post-login destinations. Anything else falls back to /dashboard. */
-const ALLOWED = ["/dashboard", "/onboarding", "/settings/profile", "/admin/verifications"];
+const ALLOWED = ["/dashboard", "/onboarding", "/settings/profile", "/admin"];
 
 export function safeReturnTo(raw: unknown, fallback = "/dashboard"): string {
   if (typeof raw !== "string" || raw.length > 300) return fallback;

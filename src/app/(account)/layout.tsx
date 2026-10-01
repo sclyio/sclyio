@@ -16,7 +16,7 @@ export default async function AccountLayout({ children }: { children: React.Reac
           <nav aria-label="Account">
             {actor.onboarded ? <Link href="/dashboard">Dashboard</Link> : <Link href="/onboarding">Finish setup</Link>}
             <Link href="/settings/profile">Settings</Link>
-            {actor.isAdmin ? <Link href="/admin/verifications">Verifications</Link> : null}
+            {actor.isAdmin ? <Link href="/admin">Admin portal</Link> : null}
           </nav>
           <form action={logoutAction}>
             <Csrf token={csrfToken(actor.sessionId)} />

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import Image from "next/image";
 import Link from "next/link";
 import "./globals.css";
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <footer className="footer">
           Contact: <a href="mailto:universal.scioly.rating@gmail.com">universal.scioly.rating@gmail.com</a>
         </footer>
+        <Analytics />
       </body>
     </html>
   );

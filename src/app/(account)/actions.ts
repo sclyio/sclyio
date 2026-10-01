@@ -130,9 +130,12 @@ export async function requestVerificationAction(fd: FormData) {
 }
 
 export async function decideSubmissionAction(fd: FormData) {
-  await act(fd, "/admin/verifications", async (ctx) => {
+  // "Verify all unreviewed" verifies each self-reported or pending item that was left on "No decision".
+  const bulk = fd.get("bulk") === "verify";
+  await act(fd, "/admin", async (ctx) => {
     const item = (prefix: string, id: string): DecisionInput | null => {
-      const decision = fd.get(`${prefix}:${id}:decision`);
+      let decision = fd.get(`${prefix}:${id}:decision`);
+      if ((!decision || decision === "skip") && bulk && fd.get(`${prefix}:${id}:bulk`) === "1") decision = "VERIFIED";
       if (!decision || decision === "skip") return null;
       return {
         id,

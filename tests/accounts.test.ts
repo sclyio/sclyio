@@ -5,7 +5,7 @@ import { publicProfile, schoolMembers } from "../src/lib/accounts/public";
 import { dashboard } from "../src/lib/accounts/dashboard";
 import { ensureAccountsSchema, REQUIRED_ACCOUNTS_MIGRATION, row, rows, run } from "../src/lib/accounts/db";
 import { AccessError, ConflictError, ValidationError } from "../src/lib/accounts/errors";
-import { adminQueue, decideClaim, decideMembership, decideSubmission } from "../src/lib/accounts/review";
+import { adminQueue, adminRecords, adminSeasonSummary, decideClaim, decideMembership, decideSubmission } from "../src/lib/accounts/review";
 import { ADMIN_EMAIL, isAdminIdentity, normalizeEmail } from "../src/lib/auth/policy";
 import { safeReturnTo } from "../src/lib/auth/return-to";
 import { completeLogin, createSession, LoginError, revokeSession } from "../src/lib/auth/session";
@@ -89,6 +89,8 @@ describe("administrator policy", () => {
 
   it("returns only same-origin allowlisted paths after login", () => {
     expect(safeReturnTo("/admin/verifications?state=open")).toBe("/admin/verifications?state=open");
+    expect(safeReturnTo("/admin/records?season=2025")).toBe("/admin/records?season=2025");
+    expect(safeReturnTo("/administrator")).toBe("/dashboard");
     expect(safeReturnTo("/dashboard/claims/new")).toBe("/dashboard/claims/new");
     for (const bad of ["https://evil.test/dashboard", "//evil.test/dashboard", "/\\evil.test", "/rankings", "javascript:alert(1)", "/dashboard\n", null]) {
       expect(safeReturnTo(bad)).toBe("/dashboard");
@@ -358,6 +360,59 @@ describe("manual verification", () => {
     expect(json).not.toContain("@example.test");
     expect(json).not.toContain("sub-review");
     expect(json).not.toContain(s.token);
+  });
+
+  it("the admin can browse and verify past seasons' records that were never submitted", async () => {
+    const me = await signIn(w, "sub-past", "sub-past@example.test");
+    await setDisplayName(me.ctx(), "Past Paula");
+    const m = await joinSchool(me.ctx(), { schoolId: ids.alder, division: "C", season: 2025 });
+    const [c1, c2] = await addClaims(me.ctx(), {
+      membershipId: m,
+      tournamentId: w.t.prev,
+      entryId: ids.entry(w.t.prev, 1),
+      tournamentEventIds: [await ids.ev(w.t.prev, "Codebusters"), await ids.ev(w.t.prev, "Fermi Questions")],
+    });
+    const a = await admin();
+
+    // Non-admins cannot see the records browser or the season overview.
+    await rejects(adminRecords(me.ctx()), AccessError, "forbidden");
+    await rejects(adminSeasonSummary(anon(w)), AccessError, "unauthenticated");
+
+    const { items } = await adminRecords(a.ctx(), { season: 2025, q: "Past Paula" });
+    expect(items).toHaveLength(1);
+    expect(items[0].membership.id).toBe(m);
+    expect(items[0].openRequestId).toBeNull();
+    expect(items[0].claims.map((c) => c.claim.status)).toEqual(["SELF_REPORTED", "SELF_REPORTED"]);
+    expect((await adminRecords(a.ctx(), { season: 2026, q: "Past Paula" })).items).toHaveLength(0);
+    const before = (await adminSeasonSummary(a.ctx())).seasons.find((s) => s.season === 2025 && s.division === "C")!;
+    expect(before.claimsUnverified).toBeGreaterThanOrEqual(2);
+
+    // Direct decisions on self-reported items, with no request involved.
+    const res = await decideSubmission(a.ctx(), {
+      membership: { id: m, revision: 1, decision: "VERIFIED" },
+      claims: [
+        { id: c1, revision: 1, decision: "VERIFIED" },
+        { id: c2, revision: 1, decision: "REJECTED", publicReason: "Not on the 2025 roster." },
+      ],
+    });
+    expect(res.every((r) => r.ok)).toBe(true);
+    // A rejection can later be reversed; a rejected item still cannot be revoked.
+    await rejects(decideClaim(a.ctx(), { id: c2, revision: 1, decision: "REVOKED", publicReason: "x" }), ConflictError);
+    await decideClaim(a.ctx(), { id: c2, revision: 1, decision: "VERIFIED", privateNote: "found the roster" });
+    const statuses = await rows<{ status: string }>(w.db, `SELECT status FROM participation_claims WHERE membership_id = ? ORDER BY id`, [m]);
+    expect(statuses.every((s) => s.status === "VERIFIED")).toBe(true);
+    const decisions = await rows<{ request_id: string | null }>(w.db, `SELECT request_id FROM verification_decisions WHERE subject_id IN (?, ?, ?)`, [m, c1, c2]);
+    expect(decisions.every((d) => d.request_id === null)).toBe(true);
+
+    // Fully verified records drop out of the default "needs review" view but stay under "any".
+    expect((await adminRecords(a.ctx(), { season: 2025, q: "Past Paula" })).items).toHaveLength(0);
+    expect((await adminRecords(a.ctx(), { season: 2025, q: "Past Paula", status: "any" })).items).toHaveLength(1);
+  });
+
+  it("the admin's own records are not listed in the records browser", async () => {
+    const a = await admin();
+    const { items } = await adminRecords(a.ctx(), { status: "any" });
+    expect(items.every((i) => i.user.id !== a.userId)).toBe(true);
   });
 
   it("the admin cannot review their own affiliation or claims", async () => {

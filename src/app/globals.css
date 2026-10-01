@@ -926,6 +926,19 @@ button:disabled {
 .private {
   color: #8a5300;
 }
+.admin-bar {
+  border-color: var(--navy);
+}
+.admin-mark {
+  font-weight: 700;
+  color: var(--navy);
+}
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
 @media (max-width: 640px) {
   .decision {
     grid-template-columns: 1fr;
