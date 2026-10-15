@@ -11,8 +11,6 @@ import { STATUS_TEXT } from "@/lib/format";
 import { entityLabel, officialEvents } from "@/lib/queries/common";
 import { attachRefits, detailSnapshotId, eventBreakdown, schoolHistory, schoolProfile } from "@/lib/queries/profiles";
 
-export const dynamic = "force-dynamic";
-
 const TABS = ["teams", "results", "events", "history", "members"] as const;
 
 export async function generateMetadata(props: PageProps<"/schools/[slug]">): Promise<Metadata> {

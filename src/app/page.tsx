@@ -1,11 +1,10 @@
 import Link from "next/link";
+import { connection } from "next/server";
 import { HeroArt } from "@/components/hero-art";
 import { Avatar, Change, teamLabel, TournamentLink, usr } from "@/components/plain";
 import { kv } from "@/lib/queries/common";
 import { recentTournaments } from "@/lib/queries/coverage";
 import { getRankings } from "@/lib/queries/rankings";
-
-export const dynamic = "force-dynamic";
 
 const top = (division: "B" | "C") =>
   getRankings({
@@ -23,6 +22,8 @@ const top = (division: "B" | "C") =>
 const fmt = (n: number | undefined) => (n === undefined ? null : n.toLocaleString("en-US"));
 
 export default async function Home() {
+  // Render per request (the active dataset can change without a deploy); query results are cached in db/read.ts.
+  await connection();
   const [c, b, recent, countsRaw] = await Promise.all([top("C"), top("B"), recentTournaments(8), kv("site_counts")]);
   let counts: { teams?: number; schools?: number; entries?: number } = {};
   try {

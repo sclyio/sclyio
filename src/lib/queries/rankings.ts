@@ -156,11 +156,17 @@ export async function getRankings(p: RankingsParams): Promise<RankingsResult> {
     last: `last_competition ${dir}, z DESC`,
     name: `name ${dir === "DESC" ? "DESC" : "ASC"}, designation`,
   };
-  const [count, rows] = await Promise.all([
-    get<{ c: number }>(`SELECT COUNT(*) AS c FROM (${filtered})`, args as InArgs),
-    all(`${filtered} ORDER BY ${order[p.sort]} LIMIT ${PAGE_SIZE} OFFSET ${(Math.max(1, p.page) - 1) * PAGE_SIZE}`, args as InArgs),
-  ]);
-  const total = count?.c ?? 0;
+  // One pass: the window count rides along with the page (each pass reads the whole snapshot, billed per row).
+  const rows = await all(
+    `SELECT *, COUNT(*) OVER () AS total_count FROM (${filtered}) ORDER BY ${order[p.sort]} LIMIT ${PAGE_SIZE} OFFSET ${(Math.max(1, p.page) - 1) * PAGE_SIZE}`,
+    args as InArgs,
+  );
+  // A page past the end returns no rows to carry the count.
+  const total = rows.length
+    ? (rows[0].total_count as number)
+    : p.page > 1
+      ? ((await get<{ c: number }>(`SELECT COUNT(*) AS c FROM (${filtered})`, args as InArgs))?.c ?? 0)
+      : 0;
   return {
     snapshot,
     snapshots: snaps,

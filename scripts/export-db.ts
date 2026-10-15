@@ -41,6 +41,9 @@ const counts = db
 db.prepare(`INSERT INTO kv (key, value) VALUES ('site_counts', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(
   JSON.stringify(counts),
 );
+// Event-mode rankings read one event of a snapshot; the primary key (snapshot,
+// entity, event) would make them read every event's rows instead.
+db.prepare(`CREATE INDEX IF NOT EXISTS event_ratings_event ON event_ratings (snapshot_id, event_def_id)`).run();
 // Model inputs (observations) are only needed by the rating jobs, not the site.
 db.prepare(`DELETE FROM observations`).run();
 db.pragma("journal_mode = DELETE");

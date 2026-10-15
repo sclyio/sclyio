@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import { Avatar, teamLabel, TournamentLink, usr } from "@/components/plain";
 import { search } from "@/lib/queries/search";
 
-export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Search" };
 
 export default async function SearchPage(props: PageProps<"/search">) {

@@ -1,6 +1,7 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
+import { unstable_cache } from "next/cache";
 import { createClient, type Client, type InArgs } from "@libsql/client";
 import { usedArgs } from "./args";
 
@@ -10,7 +11,9 @@ import { usedArgs } from "./args";
  * Production (Turso): `npm run publish:turso` uploads each finished dataset as a
  * new Turso database, then flips a one-row pointer in a small "meta" database.
  * Requests resolve the pointer (cached for a minute) and read the active
- * dataset, so a publish is atomic from a visitor's point of view.
+ * dataset, so a publish is atomic from a visitor's point of view. Results from a
+ * remote dataset are cached by dataset URL (see cachedQuery); pages that read
+ * through here must not be `force-dynamic`, which bypasses the data cache.
  *   TURSO_META_URL   libsql://… URL of the meta database
  *   TURSO_READ_TOKEN read-only group token (valid for every database in the group)
  *
@@ -70,19 +73,44 @@ export type Row = Record<string, unknown>;
 
 export { usedArgs };
 
-async function exec(sqlText: string, args?: InArgs) {
-  const { url, token } = await resolveUrl();
-  return client(url, token).execute({ sql: sqlText, args: usedArgs(sqlText, args) });
-}
-
-/** All rows as plain objects. */
-export async function all<T = Row>(sqlText: string, args?: InArgs): Promise<T[]> {
-  const rs = await exec(sqlText, args);
+async function query(url: string, token: string | undefined, sqlText: string, args: InArgs | undefined): Promise<Row[]> {
+  const rs = await client(url, token).execute({ sql: sqlText, args });
   return rs.rows.map((r) => {
     const o: Row = {};
     rs.columns.forEach((c, i) => (o[c] = r[i]));
-    return o as T;
+    return o;
   });
+}
+
+// Tokens stay out of the cache key; a miss runs right after resolveUrl() recorded the token.
+const tokens = new Map<string, string | undefined>();
+
+/**
+ * Remote datasets are immutable (each publish is a new database URL), so a result
+ * keyed by (dataset URL, SQL, args) never goes stale and is kept indefinitely in
+ * the Next.js data cache, shared across serverless instances. Turso bills per row
+ * read, so repeat page views and crawler hits must not reach the database.
+ */
+const cachedQuery = unstable_cache(
+  (url: string, sqlText: string, args: InArgs | undefined) => query(url, tokens.get(url), sqlText, args),
+  ["sclyio-dataset-query-v1"],
+  { revalidate: false },
+);
+
+/** All rows as plain objects. */
+export async function all<T = Row>(sqlText: string, args?: InArgs): Promise<T[]> {
+  const { url, token } = await resolveUrl();
+  const used = usedArgs(sqlText, args);
+  // A local file is rewritten in place by the CLI jobs, so it is never cached.
+  if (url.startsWith("file:")) return (await query(url, token, sqlText, used)) as T[];
+  tokens.set(url, token);
+  try {
+    return (await cachedQuery(url, sqlText, used)) as T[];
+  } catch (e) {
+    // Outside a Next.js request (CLI jobs, tests) there is no cache: query directly.
+    if (e instanceof Error && e.message.includes("incrementalCache missing")) return (await query(url, token, sqlText, used)) as T[];
+    throw e;
+  }
 }
 
 /** First row or undefined. */

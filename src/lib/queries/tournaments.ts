@@ -51,15 +51,20 @@ export async function listTournaments(p: TournamentListParams) {
   }
   const order = p.sort === "date" ? "t.end_date DESC, f.weight DESC, t.name" : "f.weight IS NULL, f.weight DESC, t.end_date DESC, t.name";
   const base = `FROM tournaments t LEFT JOIN field_strength f ON f.build_id = @build AND f.tournament_id = t.id AND f.view = 'team' WHERE ${where.join(" AND ")}`;
-  const [count, rows] = await Promise.all([
-    get<{ c: number }>(`SELECT COUNT(*) AS c ${base}`, args as InArgs),
-    all(
-      `SELECT t.id, t.name, t.level, t.division, t.season, t.state, t.end_date, t.team_count, t.format, t.result_url, f.weight
-       ${base} ORDER BY ${order} LIMIT ${T_PAGE} OFFSET ${(Math.max(1, p.page) - 1) * T_PAGE}`,
-      args as InArgs,
-    ),
-  ]);
-  return { total: count?.c ?? 0, rows };
+  // One pass: the window count rides along with the page.
+  const rows = await all(
+    `SELECT t.id, t.name, t.level, t.division, t.season, t.state, t.end_date, t.team_count, t.format, t.result_url, f.weight,
+            COUNT(*) OVER () AS total_count
+     ${base} ORDER BY ${order} LIMIT ${T_PAGE} OFFSET ${(Math.max(1, p.page) - 1) * T_PAGE}`,
+    args as InArgs,
+  );
+  // A page past the end returns no rows to carry the count.
+  const total = rows.length
+    ? (rows[0].total_count as number)
+    : p.page > 1
+      ? ((await get<{ c: number }>(`SELECT COUNT(*) AS c ${base}`, args as InArgs))?.c ?? 0)
+      : 0;
+  return { total, rows };
 }
 
 export async function tournamentFilters() {

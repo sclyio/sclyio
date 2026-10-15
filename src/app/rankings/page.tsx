@@ -5,7 +5,6 @@ import { officialEvents, states } from "@/lib/queries/common";
 import { getRankings, levels, PAGE_SIZE, type Period, type StatusFilter } from "@/lib/queries/rankings";
 import type { RatingView } from "@/lib/rating/config";
 
-export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Rankings" };
 
 type SP = Record<string, string | string[] | undefined>;

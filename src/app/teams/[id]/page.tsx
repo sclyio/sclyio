@@ -8,8 +8,6 @@ import { STATUS_TEXT } from "@/lib/format";
 import { officialEvents } from "@/lib/queries/common";
 import { detailSnapshotId, eventBreakdown, team, teamAppearances, teamHistory } from "@/lib/queries/profiles";
 
-export const dynamic = "force-dynamic";
-
 export async function generateMetadata(props: PageProps<"/teams/[id]">): Promise<Metadata> {
   const { id } = await props.params;
   const t = await team(decodeURIComponent(id));

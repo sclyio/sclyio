@@ -83,6 +83,8 @@ sync → ratings:rebuild → test → db:export → new DB "sclyio-data-<time>-b
                                → publish:turso: upload → verify → flip pointer in "sclyio-meta"  ← app reads pointer (60 s cache)
 ```
 
+Turso bills per row read, so the site caches every dataset query result in the Next.js data cache, keyed by dataset URL, SQL, and arguments (`src/lib/db/read.ts`). Datasets are immutable, so entries never go stale, and a publish moves the pointer to a new URL that starts with an empty cache. Public data pages must not use `force-dynamic`, which bypasses that cache. `robots.txt` keeps crawlers off query-string URLs and search.
+
 Each publish creates a new dataset database, uploads and verifies it, and only then updates the one-row pointer in the meta database, so visitors never see a partial dataset. The newest two datasets are kept. No Vercel redeploy is needed when data changes, except when a code change also changes the database schema: then deploy the code and publish the dataset together.
 
 ### One-time setup

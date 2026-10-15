@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Pager, seasonLabel } from "@/components/plain";
 import { listTournaments, T_PAGE, tournamentFilters } from "@/lib/queries/tournaments";
 
-export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Tournaments" };
 
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
